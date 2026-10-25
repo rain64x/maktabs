@@ -1,42 +1,34 @@
 <script lang="ts">
-  import svelteLogo from '../../assets/svelte.svg'
-  import Counter from '../../lib/Counter.svelte'
+  const title = 'MakTabs';
 </script>
 
-<main>
-  <div>
-    <a href="https://wxt.dev" target="_blank" rel="noreferrer">
-      <img src="/wxt.svg" class="logo" alt="WXT Logo" />
-    </a>
-    <a href="https://svelte.dev" target="_blank" rel="noreferrer">
-      <img src={svelteLogo} class="logo svelte" alt="Svelte Logo" />
-    </a>
-  </div>
-  <h1>WXT + Svelte</h1>
-
-  <div class="card">
-    <Counter />
-  </div>
-
-  <p class="read-the-docs">
-    Click on the WXT and Svelte logos to learn more
-  </p>
+<main class="container">
+  <header>
+    <h1>{title}</h1>
+    <p class="subtitle">Stash open tabs into native browser bookmarks</p>
+  </header>
 </main>
 
 <style>
-  .logo {
-    height: 6em;
-    padding: 1.5em;
-    will-change: filter;
-    transition: filter 300ms;
+  .container {
+    width: 360px;
+    padding: 1rem;
+    box-sizing: border-box;
   }
-  .logo:hover {
-    filter: drop-shadow(0 0 2em #54bc4ae0);
+
+  header {
+    text-align: center;
+    margin-bottom: 1rem;
   }
-  .logo.svelte:hover {
-    filter: drop-shadow(0 0 2em #ff3e00aa);
+
+  h1 {
+    font-size: 1.5rem;
+    margin: 0;
   }
-  .read-the-docs {
+
+  .subtitle {
+    font-size: 0.85rem;
     color: #888;
+    margin: 0.25rem 0 0 0;
   }
 </style>
