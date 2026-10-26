@@ -18,7 +18,7 @@ By leveraging browser bookmarks, your stashed sessions inherit built-in cross-de
 - **☁️ Native & Self-Hosted Cloud Sync**: Sessions are stored directly in native bookmark folders, synchronizing across all your devices automatically.
 - **📥 OneTab Importer**: Effortlessly migrate existing OneTab export lists (`URL | Title`) into organized, timestamped bookmark sessions.
 - **🛡️ Data Safety & URL Filtering**: Automatically skips non-bookmarkable internal browser tabs (such as `chrome://`, `edge://`, `about:`, and `devtools://`).
-- **📌 Pinned Tab Protection**: Option to preserve pinned tabs while stashing the rest of your window.
+- **📌 Pinned Tab Protection**: Pinned tabs are automatically preserved and never stashed or closed.
 - **📂 Customizable Folder Hierarchy**: Store sessions in a default `MakTabs` folder or pick any custom bookmark folder.
 - **🚀 Flexible Restoration**: Restore individual tabs or entire sessions in the current window or a new window, with options to keep or delete the bookmarks after restoring.
 - **🌓 Dark & Light Modes**: Clean, responsive UI built with Svelte 5 that adapts to your system theme.

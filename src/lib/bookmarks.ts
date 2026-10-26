@@ -80,6 +80,14 @@ export async function stashCurrentTab(closeAfter = false): Promise<StashResult> 
       return { success: false, count: 0, message: 'No active tab found' };
     }
 
+    if (activeTab.pinned) {
+      return {
+        success: false,
+        count: 0,
+        message: 'Pinned tabs are protected from stashing',
+      };
+    }
+
     if (!isStashableUrl(activeTab.url)) {
       return {
         success: false,
@@ -122,13 +130,13 @@ export async function stashCurrentTab(closeAfter = false): Promise<StashResult> 
 export async function stashAllTabs(closeAfter = false): Promise<StashResult> {
   try {
     const tabs = await browser.tabs.query({ currentWindow: true });
-    const validTabs = tabs.filter((t) => isStashableUrl(t.url));
+    const validTabs = tabs.filter((t) => !t.pinned && isStashableUrl(t.url));
 
     if (validTabs.length === 0) {
       return {
         success: false,
         count: 0,
-        message: 'No eligible tabs found to stash in this window',
+        message: 'No eligible unpinned tabs found to stash in this window',
       };
     }
 
@@ -202,20 +210,26 @@ export async function stashAllTabs(closeAfter = false): Promise<StashResult> {
   }
 }
 
-/**
- * Retrieves tab counts for current window.
- */
-export async function getStashableTabsInfo(): Promise<{
+export interface StashableTabsInfo {
   totalValid: number;
   isCurrentValid: boolean;
-}> {
+  isCurrentPinned: boolean;
+}
+
+/**
+ * Retrieves tab counts for current window, ignoring pinned tabs.
+ */
+export async function getStashableTabsInfo(): Promise<StashableTabsInfo> {
   try {
     const tabs = await browser.tabs.query({ currentWindow: true });
     const activeTab = tabs.find((t) => t.active);
-    const totalValid = tabs.filter((t) => isStashableUrl(t.url)).length;
-    const isCurrentValid = activeTab ? isStashableUrl(activeTab.url) : false;
-    return { totalValid, isCurrentValid };
+    const totalValid = tabs.filter((t) => !t.pinned && isStashableUrl(t.url)).length;
+    const isCurrentPinned = Boolean(activeTab?.pinned);
+    const isCurrentValid = activeTab
+      ? !activeTab.pinned && isStashableUrl(activeTab.url)
+      : false;
+    return { totalValid, isCurrentValid, isCurrentPinned };
   } catch {
-    return { totalValid: 0, isCurrentValid: false };
+    return { totalValid: 0, isCurrentValid: false, isCurrentPinned: false };
   }
 }

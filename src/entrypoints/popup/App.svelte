@@ -19,6 +19,7 @@
 
   let totalValidTabs = $state<number | null>(null);
   let isCurrentValid = $state(true);
+  let isCurrentPinned = $state(false);
 
   let canExecute = $derived(
     target === 'window'
@@ -31,6 +32,7 @@
       const info = await getStashableTabsInfo();
       totalValidTabs = info.totalValid;
       isCurrentValid = info.isCurrentValid;
+      isCurrentPinned = info.isCurrentPinned;
     } catch {
       // Ignore background query error
     }
@@ -110,12 +112,22 @@
           aria-checked={target === 'this'}
           class="pill-segment {target === 'this' ? 'active' : ''}"
           onclick={() => selectTarget('this')}
-          title={isCurrentValid ? 'Target current active tab' : 'Current tab cannot be bookmarked'}
+          title={isCurrentPinned
+            ? 'Current tab is pinned and protected'
+            : isCurrentValid
+              ? 'Target current active tab'
+              : 'Current tab cannot be bookmarked'}
         >
           This tab
         </button>
       </div>
     </div>
+
+    {#if target === 'this' && isCurrentPinned}
+      <div class="pinned-notice">
+        <span>📌 Pinned tabs are protected from stashing.</span>
+      </div>
+    {/if}
 
     <!-- Row 2: Action Buttons -->
     <div class="control-row">
@@ -126,7 +138,9 @@
           class="btn-sm btn-action btn-close"
           onclick={() => handleExecute(true)}
           disabled={isProcessing || !canExecute}
-          title="Save target tab(s) to makTabs bookmarks and close them"
+          title={target === 'this' && isCurrentPinned
+            ? 'Pinned tabs are protected'
+            : 'Save target tab(s) to makTabs bookmarks and close them'}
         >
           Save and Close
         </button>
@@ -135,7 +149,9 @@
           class="btn-sm btn-action btn-save"
           onclick={() => handleExecute(false)}
           disabled={isProcessing || !canExecute}
-          title="Save target tab(s) to makTabs bookmarks without closing"
+          title={target === 'this' && isCurrentPinned
+            ? 'Pinned tabs are protected'
+            : 'Save target tab(s) to makTabs bookmarks without closing'}
         >
           Save only
         </button>
@@ -212,6 +228,25 @@
     border: 1px solid rgba(128, 128, 128, 0.12);
     border-radius: 8px;
     padding: 0.75rem 0.7rem;
+  }
+
+  .pinned-notice {
+    font-size: 0.74rem;
+    color: #475569;
+    background: rgba(148, 163, 184, 0.12);
+    border: 1px dashed rgba(148, 163, 184, 0.35);
+    border-radius: 6px;
+    padding: 0.35rem 0.5rem;
+    text-align: center;
+    line-height: 1.3;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .pinned-notice {
+      color: #94a3b8;
+      background: rgba(148, 163, 184, 0.08);
+      border-color: rgba(148, 163, 184, 0.25);
+    }
   }
 
   .control-row {
