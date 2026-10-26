@@ -6,7 +6,7 @@
 
 > **Stash open tabs into native browser bookmarks and organize bookmarks with an interactive drag-and-drop tree manager — with automatic cloud sync, zero data lock-in, and OneTab migration.**
 
-MakTabs is an open-source, privacy-first browser extension and native bookmark manager inspired by OneTab. Instead of saving tabs into volatile local storage or a proprietary database, MakTabs stashes them directly into native browser bookmark folders.
+MakTabs is an open-source, privacy-first browser extension and native bookmark manager inspired by OneTab. Instead of saving tabs into volatile local storage or a proprietary database, MakTabs stashes them directly into native browser bookmark folders under **Bookmarks Bar > makTabs** by default for instant 1-click access right from your browser toolbar.
 
 By leveraging native browser bookmarks, your stashed sessions and organized bookmark collections inherit built-in cross-device synchronization (via Chrome Sync, Firefox Sync, or Edge Sync), remain accessible even if the extension is disabled, and eliminate the risk of session loss.
 
@@ -14,7 +14,7 @@ By leveraging native browser bookmarks, your stashed sessions and organized book
 
 ## ✨ Features
 
-- **⚡ Instant Stashing**: Stash current tab or current window with a single click, placing newer sessions at the top by default.
+- **⚡ Instant Stashing**: Stash current tab or current window with a single click into **Bookmarks Bar > makTabs**, placing newer sessions at the top by default.
 - **💤 Memory Saver Mode (Lazy Tab Restore)**: Spawn dozens or hundreds of restored tabs without RAM lag, CPU throttling, or network overload. Background tabs are opened in a paused, ultra-lightweight state with the website's logo and title, and automatically wake up and navigate to the real URL the instant you switch to or focus on them.
 - **🌲 Interactive Bookmarks Tree & Organizer**: Visualize your entire bookmarks hierarchy as an interactive tree, list, or responsive grid.
 - **↕️ Drag & Drop Reordering & Nesting**:

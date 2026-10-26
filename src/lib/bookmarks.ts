@@ -19,43 +19,63 @@ export function isStashableUrl(url: string | undefined): boolean {
 }
 
 /**
- * Finds or creates the root 'makTabs' bookmark folder.
- * Resolves across Chromium ("Other Bookmarks") and Gecko ("unfiled_____").
+ * Resolves the Bookmarks Bar folder across Chromium ("1" / "Bookmarks bar")
+ * and Gecko ("toolbar_____" / "Bookmarks Toolbar").
  */
-export async function getOrCreateMakTabsFolder(): Promise<string> {
-  const matches = await browser.bookmarks.search({ title: MAKTABS_FOLDER_NAME });
-  const existingFolder = matches.find((item) => !item.url);
-  if (existingFolder?.id) {
-    return existingFolder.id;
-  }
-
-  let parentId: string | undefined;
+export async function getBookmarksBarFolderId(): Promise<string | undefined> {
   try {
     const tree = await browser.bookmarks.getTree();
     const rootChildren = tree[0]?.children ?? [];
 
-    const otherBookmarks = rootChildren.find((node) => {
+    const bookmarksBar = rootChildren.find((node) => {
       const title = (node.title || '').toLowerCase();
       return (
-        node.id === '2' ||
-        node.id === 'unfiled_____' ||
-        title.includes('other') ||
-        title.includes('unfiled')
+        node.id === '1' ||
+        node.id === 'toolbar_____' ||
+        title.includes('bar') ||
+        title.includes('toolbar')
       );
     });
 
-    const firstChild = rootChildren[0];
-    if (otherBookmarks?.id) {
-      parentId = otherBookmarks.id;
-    } else if (firstChild?.id) {
-      parentId = firstChild.id;
+    if (bookmarksBar?.id) {
+      return bookmarksBar.id;
     }
+    // Fallback to first child (in Chromium, index 0 is always Bookmarks bar)
+    return rootChildren[0]?.id;
   } catch (err) {
-    console.warn('Could not inspect bookmark tree for parent folder:', err);
+    console.warn('Could not inspect bookmark tree for Bookmarks Bar:', err);
+    return undefined;
+  }
+}
+
+/**
+ * Finds or creates the root 'makTabs' bookmark folder.
+ * Defaults to Bookmarks Bar ("Bookmarks bar" / "toolbar_____") for 1-click access.
+ * Automatically migrates existing folders from "Other Bookmarks" if previously created there.
+ */
+export async function getOrCreateMakTabsFolder(): Promise<string> {
+  const bookmarksBarId = await getBookmarksBarFolderId();
+
+  const matches = await browser.bookmarks.search({ title: MAKTABS_FOLDER_NAME });
+  const existingFolder = matches.find((item) => !item.url);
+  if (existingFolder?.id) {
+    // If the folder was previously placed under Other Bookmarks ('2' / 'unfiled_____'),
+    // migrate it to the Bookmarks Bar for immediate native visibility
+    if (
+      bookmarksBarId &&
+      (existingFolder.parentId === '2' || existingFolder.parentId === 'unfiled_____')
+    ) {
+      try {
+        await browser.bookmarks.move(existingFolder.id, { parentId: bookmarksBarId });
+      } catch (moveErr) {
+        console.warn('Could not migrate makTabs folder to Bookmarks Bar:', moveErr);
+      }
+    }
+    return existingFolder.id;
   }
 
   const created = await browser.bookmarks.create({
-    parentId,
+    parentId: bookmarksBarId,
     title: MAKTABS_FOLDER_NAME,
   });
 
