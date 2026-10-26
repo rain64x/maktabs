@@ -17,6 +17,9 @@
     openFolderTabs,
     restoreAndOptionallyRemoveFolder,
     searchBookmarksApi,
+    getLazyUrl,
+    getMemorySaverPreference,
+    setMemorySaverPreference,
     extractDomain,
     getDomainInitial,
     getDomainColor,
@@ -35,6 +38,7 @@
   let breadcrumbs = $state<{ id: string; title: string }[]>([]);
   let currentItems = $state<BookmarkItem[]>([]);
   let isLoading = $state(true);
+  let memorySaver = $state(true);
 
   // Search & Filter State
   let searchQuery = $state('');
@@ -149,6 +153,9 @@
   // Lifecycle & Listeners
   onMount(() => {
     initManager();
+    getMemorySaverPreference().then((val) => {
+      memorySaver = val;
+    });
 
     const handleBookmarkChange = () => {
       loadTrees();
@@ -477,6 +484,17 @@
     }
   }
 
+  function toggleMemorySaver() {
+    memorySaver = !memorySaver;
+    setMemorySaverPreference(memorySaver);
+    showNotification(
+      memorySaver
+        ? '⚡ Memory Saver ON: Tabs will pause to save RAM until focused'
+        : '⚡ Memory Saver OFF: Tabs will load immediately',
+      'info'
+    );
+  }
+
   // Bookmark / Session Operations
   async function handleOpenBookmark(item: BookmarkItem) {
     if (!item.url) {
@@ -488,8 +506,8 @@
 
   async function handleOpenAllInFolder(folderId: string, newWindow = false) {
     try {
-      const count = await openFolderTabs(folderId, newWindow);
-      showNotification(`Opened ${count} tabs`, 'success');
+      const count = await openFolderTabs(folderId, newWindow, memorySaver);
+      showNotification(`Opened ${count} tabs${memorySaver ? ' (Memory Saver mode)' : ''}`, 'success');
     } catch (err) {
       showNotification('Failed to open folder tabs', 'error');
     }
@@ -497,11 +515,11 @@
 
   async function handleRestoreSession(folderId: string, removeAfter: boolean) {
     try {
-      const count = await restoreAndOptionallyRemoveFolder(folderId, removeAfter);
+      const count = await restoreAndOptionallyRemoveFolder(folderId, removeAfter, false, memorySaver);
       showNotification(
         removeAfter
           ? `Restored ${count} tabs and removed session folder`
-          : `Restored ${count} tabs`,
+          : `Restored ${count} tabs${memorySaver ? ' (Memory Saver mode)' : ''}`,
         'success'
       );
       await loadTrees();
@@ -539,14 +557,15 @@
         const nodes = await browser.bookmarks.get(id);
         const node = nodes[0];
         if (node?.url) {
-          await browser.tabs.create({ url: node.url, active: false });
+          const finalUrl = memorySaver ? getLazyUrl(node.url, node.title) : node.url;
+          await browser.tabs.create({ url: finalUrl, active: false });
           opened++;
         } else if (node) {
-          opened += await openFolderTabs(node.id, false);
+          opened += await openFolderTabs(node.id, false, memorySaver);
         }
       } catch {}
     }
-    showNotification(`Opened ${opened} tabs`, 'success');
+    showNotification(`Opened ${opened} tabs${memorySaver ? ' (Memory Saver mode)' : ''}`, 'success');
   }
 
   async function deleteSelected() {
@@ -717,6 +736,17 @@
 
     <!-- Header Quick Actions -->
     <div class="header-actions">
+      <button
+        type="button"
+        class="btn {memorySaver ? 'btn-memory-saver active' : 'btn-secondary'}"
+        onclick={toggleMemorySaver}
+        title={memorySaver
+          ? 'Memory Saver is active: tabs will be paused until focused to save RAM'
+          : 'Memory Saver is off: tabs load immediately'}
+      >
+        <span>⚡ Memory Saver: {memorySaver ? 'ON' : 'OFF'}</span>
+      </button>
+
       <button
         type="button"
         class="btn btn-secondary"

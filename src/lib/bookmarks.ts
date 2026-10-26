@@ -492,23 +492,52 @@ export async function openBookmarkUrl(url: string, newTab = true): Promise<void>
 }
 
 /**
- * Opens all valid bookmark tabs inside a folder.
+ * Constructs a lazy placeholder URL that pauses page load until the user focuses the tab.
+ */
+export function getLazyUrl(url: string, title?: string): string {
+  return browser.runtime.getURL(
+    `/lazy.html?url=${encodeURIComponent(url)}&title=${encodeURIComponent(title || url)}`
+  );
+}
+
+/**
+ * Retrieves the user's Memory Saver preference (defaults to true).
+ */
+export async function getMemorySaverPreference(): Promise<boolean> {
+  try {
+    const res = await browser.storage.local.get('maktabs_memory_saver');
+    return res.maktabs_memory_saver !== false;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Persists the user's Memory Saver preference.
+ */
+export async function setMemorySaverPreference(enabled: boolean): Promise<void> {
+  await browser.storage.local.set({ maktabs_memory_saver: enabled });
+}
+
+/**
+ * Opens all valid bookmark tabs inside a folder, with optional Memory Saver lazy loading.
  */
 export async function openFolderTabs(
   folderId: string,
-  newWindow = false
+  newWindow = false,
+  lazy = false
 ): Promise<number> {
   const tree = await browser.bookmarks.getSubTree(folderId);
   const root = tree[0];
   if (!root) return 0;
 
-  const urls: string[] = [];
+  const itemsToOpen: { url: string; title: string }[] = [];
   type BrowserTreeNode = (typeof tree)[number];
 
   function collectUrls(node?: BrowserTreeNode) {
     if (!node) return;
     if (node.url && isStashableUrl(node.url)) {
-      urls.push(node.url);
+      itemsToOpen.push({ url: node.url, title: node.title || node.url });
     }
     if (node.children) {
       for (const child of node.children) {
@@ -518,16 +547,20 @@ export async function openFolderTabs(
   }
   collectUrls(root);
 
-  if (urls.length === 0) return 0;
+  if (itemsToOpen.length === 0) return 0;
+
+  const finalUrls = itemsToOpen.map((item) =>
+    lazy ? getLazyUrl(item.url, item.title) : item.url
+  );
 
   if (newWindow) {
-    await browser.windows.create({ url: urls });
+    await browser.windows.create({ url: finalUrls });
   } else {
-    for (const url of urls) {
+    for (const url of finalUrls) {
       await browser.tabs.create({ url, active: false });
     }
   }
-  return urls.length;
+  return itemsToOpen.length;
 }
 
 /**
@@ -536,9 +569,10 @@ export async function openFolderTabs(
 export async function restoreAndOptionallyRemoveFolder(
   folderId: string,
   removeAfter: boolean,
-  newWindow = false
+  newWindow = false,
+  lazy = false
 ): Promise<number> {
-  const count = await openFolderTabs(folderId, newWindow);
+  const count = await openFolderTabs(folderId, newWindow, lazy);
   if (removeAfter && count > 0) {
     await browser.bookmarks.removeTree(folderId);
   }

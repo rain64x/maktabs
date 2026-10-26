@@ -11,6 +11,7 @@
     deleteBookmarkNode,
     openBookmarkUrl,
     restoreAndOptionallyRemoveFolder,
+    getMemorySaverPreference,
     extractDomain,
     getDomainInitial,
     getDomainColor,
@@ -19,6 +20,7 @@
 
   // Mode View: Stash or Bookmarks
   let activeTab = $state<'stash' | 'bookmarks'>('stash');
+  let memorySaver = $state(true);
 
   // Stashing State
   let target = $state<'window' | 'this'>('window');
@@ -91,6 +93,7 @@
 
   onMount(async () => {
     await refreshTabInfo();
+    memorySaver = await getMemorySaverPreference();
     try {
       const stored = await browser.storage.local.get(['maktabs_target', 'maktabs_popup_tab']);
       if (stored.maktabs_target === 'window' || stored.maktabs_target === 'this') {
@@ -183,7 +186,7 @@
   }
 
   async function handleRestoreSession(folderId: string, removeAfter: boolean) {
-    await restoreAndOptionallyRemoveFolder(folderId, removeAfter);
+    await restoreAndOptionallyRemoveFolder(folderId, removeAfter, false, memorySaver);
     await loadPopupBookmarks(currentFolderId);
   }
 

@@ -248,6 +248,13 @@ html, body {
   background-color: rgba(239, 68, 68, 0.2);
 }
 
+.btn-memory-saver.active {
+  background-color: var(--primary-subtle);
+  color: var(--primary);
+  border-color: var(--primary-border);
+  font-weight: 600;
+}
+
 .btn-icon-only {
   padding: 0.42rem;
   border-radius: var(--radius-sm);

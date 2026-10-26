@@ -15,6 +15,7 @@ By leveraging native browser bookmarks, your stashed sessions and organized book
 ## ✨ Features
 
 - **⚡ Instant Stashing**: Stash current tab or current window with a single click, placing newer sessions at the top by default.
+- **💤 Memory Saver Mode (Lazy Tab Restore)**: Spawn dozens or hundreds of restored tabs without RAM lag, CPU throttling, or network overload. Background tabs are opened in a paused, ultra-lightweight state with the website's logo and title, and automatically wake up and navigate to the real URL the instant you switch to or focus on them.
 - **🌲 Interactive Bookmarks Tree & Organizer**: Visualize your entire bookmarks hierarchy as an interactive tree, list, or responsive grid.
 - **↕️ Drag & Drop Reordering & Nesting**:
   - Reorder bookmarks within folders or move items between folders.
@@ -131,6 +132,11 @@ maktabs/
 ├── src/
 │   ├── entrypoints/
 │   │   ├── background.ts       # Extension service worker
+│   │   ├── lazy/               # Memory Saver lazy placeholder tab (wake-on-focus)
+│   │   │   ├── App.svelte      # Lightweight paused tab card with domain monogram
+│   │   │   ├── index.html      # Snooze page HTML
+│   │   │   ├── lazy.css        # Theme styles
+│   │   │   └── main.ts         # Snooze mount script
 │   │   ├── manager/            # Full-page Bookmarks Manager & Organizer
 │   │   │   ├── App.svelte      # Manager application view (Tree / List / Grid)
 │   │   │   ├── BookmarkTreeNode.svelte # Recursive drag-and-drop tree node component
