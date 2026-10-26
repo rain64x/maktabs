@@ -7,6 +7,7 @@
     getStashableTabsInfo,
     getOrCreateMakTabsFolder,
     getFolderContents,
+    createFolderNode,
     moveBookmarkItem,
     deleteBookmarkNode,
     openBookmarkUrl,
@@ -15,7 +16,12 @@
     extractDomain,
     getDomainInitial,
     getDomainColor,
+    getDestinationFolders,
+    getRecentDestinationIds,
+    getDefaultSessionTitle,
     type BookmarkItem,
+    type DestinationFolderOption,
+    type BreadcrumbSegment,
   } from '@/lib/bookmarks';
   import FaviconBadge from '@/lib/FaviconBadge.svelte';
 
@@ -37,12 +43,53 @@
   let totalValidTabs = $state<number | null>(null);
   let isCurrentValid = $state(true);
   let isCurrentPinned = $state(false);
+  let currentTabTitle = $state('');
 
   let canExecute = $derived(
     target === 'window'
       ? totalValidTabs === null || totalValidTabs > 0
       : isCurrentValid
   );
+
+  // Destination Picker Modal State
+  let isDestinationModalOpen = $state(false);
+  let pendingCloseAfter = $state(false);
+  let destinationNameInput = $state('');
+  let selectedFolderId = $state('');
+  let folderSearchQuery = $state('');
+  let destinationFolders = $state<DestinationFolderOption[]>([]);
+  let recentFolderIds = $state<string[]>([]);
+  let isFoldersLoading = $state(false);
+  let createSubfolder = $state(true);
+  let isCreatingSubfolder = $state(false);
+  let newSubfolderName = $state('');
+
+  let recentFolders = $derived.by(() => {
+    if (recentFolderIds.length === 0 || destinationFolders.length === 0) return [];
+    const map = new Map(destinationFolders.map((f) => [f.id, f]));
+    return recentFolderIds
+      .map((id) => map.get(id))
+      .filter((f): f is DestinationFolderOption => f !== undefined);
+  });
+
+  let filteredDestinationFolders = $derived.by(() => {
+    const q = folderSearchQuery.trim().toLowerCase();
+    if (!q) return destinationFolders;
+    return destinationFolders.filter(
+      (f) =>
+        f.title.toLowerCase().includes(q) ||
+        f.path.toLowerCase().includes(q)
+    );
+  });
+
+  let selectedFolder = $derived(
+    destinationFolders.find((f) => f.id === selectedFolderId)
+  );
+
+  let activeBreadcrumbs = $derived.by<BreadcrumbSegment[]>(() => {
+    if (!selectedFolder) return [];
+    return selectedFolder.breadcrumbs || [{ id: selectedFolder.id, title: selectedFolder.title }];
+  });
 
   // In-Popup Bookmarks State
   let rootMakTabsId = $state<string>('');
@@ -71,6 +118,10 @@
       totalValidTabs = info.totalValid;
       isCurrentValid = info.isCurrentValid;
       isCurrentPinned = info.isCurrentPinned;
+      const activeTabs = await browser.tabs.query({ active: true, currentWindow: true });
+      if (activeTabs[0]) {
+        currentTabTitle = activeTabs[0].title || '';
+      }
     } catch {
       // Ignore background query error
     }
@@ -124,16 +175,106 @@
     browser.storage.local.set({ maktabs_target: newTarget }).catch(() => {});
   }
 
-  async function handleExecute(closeAfter: boolean) {
+  async function openDestinationModal(closeAfter: boolean) {
     if (isProcessing || !canExecute) return;
+    pendingCloseAfter = closeAfter;
+    folderSearchQuery = '';
+    isCreatingSubfolder = false;
+    newSubfolderName = '';
+
+    // Default createSubfolder: true for window, false for single tab
+    createSubfolder = target === 'window';
+
+    // Prefill default name
+    if (target === 'window') {
+      destinationNameInput = getDefaultSessionTitle(totalValidTabs || 1);
+    } else {
+      destinationNameInput = currentTabTitle || 'Tab Bookmark';
+    }
+
+    isDestinationModalOpen = true;
+    isFoldersLoading = true;
+
+    try {
+      const [folders, recents] = await Promise.all([
+        getDestinationFolders(),
+        getRecentDestinationIds(),
+      ]);
+      destinationFolders = folders;
+      recentFolderIds = recents;
+
+      // Select first recent if it exists in current folders, else makTabs root
+      const firstRecent = recents[0];
+      if (firstRecent && folders.some((f) => f.id === firstRecent)) {
+        selectedFolderId = firstRecent;
+      } else {
+        const makTabsRoot = folders.find((f) => f.isMakTabsRoot);
+        selectedFolderId = makTabsRoot?.id || folders[0]?.id || '';
+      }
+    } catch (err) {
+      console.error('Failed to load destination folders:', err);
+    } finally {
+      isFoldersLoading = false;
+    }
+  }
+
+  function selectDestinationFolder(folderId: string) {
+    selectedFolderId = folderId;
+    isCreatingSubfolder = false;
+  }
+
+  function cancelDestinationModal() {
+    isDestinationModalOpen = false;
+    isCreatingSubfolder = false;
+  }
+
+  function toggleCreateSubfolder() {
+    createSubfolder = !createSubfolder;
+    if (createSubfolder && !destinationNameInput.trim()) {
+      destinationNameInput =
+        target === 'window'
+          ? getDefaultSessionTitle(totalValidTabs || 1)
+          : currentTabTitle || 'Tab Bookmark';
+    }
+  }
+
+  async function handleCreateSubfolder() {
+    const name = newSubfolderName.trim();
+    if (!name || !selectedFolderId) return;
+    try {
+      const created = await createFolderNode(selectedFolderId, name);
+      destinationFolders = await getDestinationFolders();
+      selectedFolderId = created.id;
+      isCreatingSubfolder = false;
+      newSubfolderName = '';
+    } catch (err) {
+      console.error('Failed to create subfolder:', err);
+    }
+  }
+
+  function handleModalKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape') {
+      cancelDestinationModal();
+    }
+  }
+
+  async function confirmStash() {
+    if (isProcessing || !canExecute || !selectedFolderId) return;
     isProcessing = true;
     status = { type: 'idle', message: '' };
+
+    const closeAfter = pendingCloseAfter;
+    const targetFolderId = selectedFolderId;
+    const customTitle = destinationNameInput.trim();
+    const willCreateSubfolder = createSubfolder && customTitle.length > 0;
+
+    isDestinationModalOpen = false;
 
     try {
       const res =
         target === 'window'
-          ? await stashAllTabs(closeAfter)
-          : await stashCurrentTab(closeAfter);
+          ? await stashAllTabs(closeAfter, targetFolderId, customTitle, willCreateSubfolder)
+          : await stashCurrentTab(closeAfter, targetFolderId, customTitle);
 
       status = {
         type: res.success ? 'success' : 'warning',
@@ -275,7 +416,7 @@
   }
 </script>
 
-<main class="container">
+<main class="container {isDestinationModalOpen ? 'modal-active' : ''}">
   <!-- Header with Brand and Full Manager Shortcut -->
   <header>
     <div class="header-top">
@@ -365,22 +506,22 @@
           <button
             type="button"
             class="btn-sm btn-action btn-close"
-            onclick={() => handleExecute(true)}
+            onclick={() => openDestinationModal(true)}
             disabled={isProcessing || !canExecute}
             title={target === 'this' && isCurrentPinned
               ? 'Pinned tabs are protected'
-              : 'Save target tab(s) to makTabs bookmarks and close them'}
+              : 'Choose destination folder to save target tab(s) and close them'}
           >
             Save and Close
           </button>
           <button
             type="button"
             class="btn-sm btn-action btn-save"
-            onclick={() => handleExecute(false)}
+            onclick={() => openDestinationModal(false)}
             disabled={isProcessing || !canExecute}
             title={target === 'this' && isCurrentPinned
               ? 'Pinned tabs are protected'
-              : 'Save target tab(s) to makTabs bookmarks without closing'}
+              : 'Choose destination folder to save target tab(s) without closing'}
           >
             Save only
           </button>
@@ -404,10 +545,6 @@
         <span class="status-text">{status.message}</span>
       </div>
     {/if}
-
-    <footer>
-      <p class="target-folder">Target folder: <strong>makTabs</strong></p>
-    </footer>
 
   <!-- View 2: In-Popup Bookmarks Manager -->
   {:else}
@@ -558,6 +695,264 @@
       </footer>
     </div>
   {/if}
+
+  <!-- Destination Picker Modal -->
+  {#if isDestinationModalOpen}
+    <div
+      class="modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="modal-title"
+      tabindex="-1"
+      onkeydown={handleModalKeydown}
+    >
+      <div class="modal-header">
+        <div class="modal-title-row">
+          <span class="modal-icon">📂</span>
+          <h2 id="modal-title" class="modal-title">
+            {pendingCloseAfter ? 'Save and Close' : 'Save Tabs'}
+          </h2>
+        </div>
+        <button
+          type="button"
+          class="btn-modal-close"
+          onclick={cancelDestinationModal}
+          title="Cancel and close"
+          aria-label="Close"
+        >
+          ✕
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Interactive Breadcrumb Path Builder -->
+        <div class="path-builder-card">
+          <div class="path-header-row">
+            <span class="path-title-label">Target Path:</span>
+            <button
+              type="button"
+              class="btn-subfolder-toggle {createSubfolder && destinationNameInput.trim() ? 'active' : ''}"
+              onclick={toggleCreateSubfolder}
+              title={createSubfolder ? "Click to save directly into selected folder without an extra subfolder" : "Click to wrap tabs in a subfolder"}
+            >
+              {createSubfolder && destinationNameInput.trim() ? '📁 Subfolder' : '⚡ Direct save'}
+            </button>
+          </div>
+
+          <!-- Dynamic Path Chain -->
+          <div class="path-chain">
+            {#each activeBreadcrumbs as crumb, i}
+              {@const isLastCrumb = i === activeBreadcrumbs.length - 1}
+              <button
+                type="button"
+                class="path-pill {isLastCrumb ? 'active-target' : ''}"
+                onclick={() => selectDestinationFolder(crumb.id)}
+                title="Click to set destination to {crumb.title}"
+              >
+                <span class="pill-icon">{i === 0 ? '⚡' : '📁'}</span>
+                <span class="pill-title">{crumb.title}</span>
+              </button>
+              <span class="path-chevron">›</span>
+            {/each}
+
+            <!-- Terminal Session Name Input -->
+            <div class="path-terminal-input-wrap">
+              <input
+                id="dest-name"
+                type="text"
+                class="path-terminal-input"
+                bind:value={destinationNameInput}
+                placeholder={selectedFolder ? `Direct in ${selectedFolder.title}` : 'Session Name'}
+                title="Enter session subfolder name, or leave empty for direct save"
+                onkeydown={(e) => {
+                  if (e.key === 'Enter') confirmStash();
+                }}
+              />
+              {#if destinationNameInput}
+                <button
+                  type="button"
+                  class="btn-clear-terminal"
+                  onclick={() => (destinationNameInput = '')}
+                  title="Clear to save directly without a subfolder"
+                  aria-label="Clear subfolder name"
+                >
+                  ✕
+                </button>
+              {/if}
+            </div>
+          </div>
+
+          <!-- Path Mode Description -->
+          <div class="path-feedback-caption">
+            {#if createSubfolder && destinationNameInput.trim()}
+              <span class="feedback-text">
+                📁 Will create subfolder <strong>"{destinationNameInput.trim()}"</strong> inside <strong>{selectedFolder?.title || 'makTabs'}</strong>
+              </span>
+            {:else}
+              <span class="feedback-text feedback-direct">
+                ⚡ Tabs will be saved directly into <strong>{selectedFolder?.title || 'makTabs'}</strong>
+              </span>
+            {/if}
+          </div>
+        </div>
+
+        <!-- Destination Folder Search & List -->
+        <div class="modal-field modal-field-folder">
+          <!-- Search input -->
+          <div class="search-box">
+            <span class="search-box-icon">🔍</span>
+            <input
+              type="search"
+              class="modal-input search-box-input"
+              placeholder="Filter or search folders..."
+              bind:value={folderSearchQuery}
+            />
+            {#if folderSearchQuery}
+              <button
+                type="button"
+                class="search-clear-btn"
+                onclick={() => (folderSearchQuery = '')}
+                aria-label="Clear search"
+              >
+                ✕
+              </button>
+            {/if}
+          </div>
+
+          <!-- Recent folders section -->
+          {#if !folderSearchQuery && recentFolders.length > 0}
+            <div class="recent-section">
+              <span class="modal-subheading">Recent Folders</span>
+              <div class="recent-list">
+                {#each recentFolders as rf (rf.id)}
+                  <button
+                    type="button"
+                    class="recent-chip {selectedFolderId === rf.id ? 'active' : ''}"
+                    onclick={() => selectDestinationFolder(rf.id)}
+                    title={rf.path}
+                  >
+                    <span class="recent-icon">📁</span>
+                    <span class="recent-text">{rf.path}</span>
+                  </button>
+                {/each}
+              </div>
+            </div>
+          {/if}
+
+          <!-- Folders tree / list with + New Subfolder button -->
+          <div class="folder-section">
+            <div class="folder-header-row">
+              <span class="modal-subheading">
+                {folderSearchQuery ? 'Matching Folders' : 'Folders'}
+              </span>
+              <button
+                type="button"
+                class="btn-new-subfolder-toggle"
+                onclick={() => {
+                  isCreatingSubfolder = !isCreatingSubfolder;
+                  if (isCreatingSubfolder) newSubfolderName = '';
+                }}
+                title="Create a new subfolder under {selectedFolder?.title || 'selected folder'}"
+              >
+                {isCreatingSubfolder ? '✕ Cancel' : '+ New Subfolder'}
+              </button>
+            </div>
+
+            <!-- Inline New Subfolder Creator -->
+            {#if isCreatingSubfolder}
+              <div class="inline-create-box">
+                <span class="create-box-label">
+                  New subfolder in <strong>{selectedFolder?.title || 'makTabs'}</strong>:
+                </span>
+                <div class="create-box-row">
+                  <input
+                    type="text"
+                    class="create-box-input"
+                    placeholder="Subfolder name (e.g. music, flute)..."
+                    bind:value={newSubfolderName}
+                    onkeydown={(e) => {
+                      if (e.key === 'Enter') handleCreateSubfolder();
+                      if (e.key === 'Escape') isCreatingSubfolder = false;
+                    }}
+                  />
+                  <button
+                    type="button"
+                    class="btn-create-submit"
+                    onclick={handleCreateSubfolder}
+                    disabled={!newSubfolderName.trim()}
+                  >
+                    Create
+                  </button>
+                </div>
+              </div>
+            {/if}
+
+            <div class="folder-options-list" role="listbox">
+              {#if isFoldersLoading}
+                <div class="folder-option-empty">Loading folders...</div>
+              {:else if filteredDestinationFolders.length === 0}
+                <div class="folder-option-empty">
+                  {folderSearchQuery
+                    ? `No folders match "${folderSearchQuery}"`
+                    : 'No folders found'}
+                </div>
+              {:else}
+                {#each filteredDestinationFolders as folder (folder.id)}
+                  {@const isSelected = selectedFolderId === folder.id}
+                  <div
+                    class="folder-option {isSelected ? 'selected' : ''} {folder.isUnderMakTabs ? 'under-maktabs' : ''}"
+                    role="option"
+                    aria-selected={isSelected}
+                    tabindex="0"
+                    onclick={() => selectDestinationFolder(folder.id)}
+                    ondblclick={confirmStash}
+                    onkeydown={(e) => {
+                      if (e.key === 'Enter') selectDestinationFolder(folder.id);
+                    }}
+                  >
+                    <span class="folder-option-icon">
+                      {folder.isMakTabsRoot ? '⚡' : '📁'}
+                    </span>
+                    <span class="folder-option-path" title={folder.path}>
+                      {folder.path}
+                    </span>
+                    {#if isSelected}
+                      <span class="folder-option-check">✓</span>
+                    {/if}
+                  </div>
+                {/each}
+              {/if}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button
+          type="button"
+          class="btn-modal-action btn-modal-cancel"
+          onclick={cancelDestinationModal}
+          disabled={isProcessing}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          class="btn-modal-action {pendingCloseAfter ? 'btn-modal-close-save' : 'btn-modal-save'}"
+          onclick={confirmStash}
+          disabled={isProcessing || !selectedFolderId}
+        >
+          {#if isProcessing}
+            Saving...
+          {:else if pendingCloseAfter}
+            Save and Close
+          {:else}
+            Save only
+          {/if}
+        </button>
+      </div>
+    </div>
+  {/if}
 </main>
 
 <style>
@@ -568,6 +963,12 @@
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
+    position: relative;
+    min-height: 240px;
+  }
+
+  .container.modal-active {
+    min-height: 470px;
   }
 
   header {
@@ -873,16 +1274,657 @@
     border: 1px solid rgba(239, 68, 68, 0.25);
   }
 
-  footer {
-    border-top: 1px solid rgba(128, 128, 128, 0.15);
-    padding-top: 0.45rem;
-    text-align: center;
+  /* Destination Picker Modal */
+  .modal-overlay {
+    position: absolute;
+    inset: 0;
+    background-color: #ffffff;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    border-radius: 8px;
+    box-sizing: border-box;
+    animation: fadeIn 0.15s ease-out;
+    outline: none;
   }
 
-  .target-folder {
+  @media (prefers-color-scheme: dark) {
+    .modal-overlay {
+      background-color: #18181b;
+    }
+  }
+
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.7rem 0.85rem;
+    border-bottom: 1px solid rgba(128, 128, 128, 0.15);
+  }
+
+  .modal-title-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .modal-icon {
+    font-size: 0.95rem;
+  }
+
+  .modal-title {
+    font-size: 0.92rem;
+    font-weight: 700;
     margin: 0;
+    letter-spacing: -0.01em;
+  }
+
+  .btn-modal-close {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-size: 0.85rem;
+    padding: 0.2rem 0.4rem;
+    border-radius: 4px;
+    opacity: 0.55;
+    color: inherit;
+    transition: all 0.12s ease;
+  }
+
+  .btn-modal-close:hover {
+    opacity: 1;
+    background-color: rgba(128, 128, 128, 0.12);
+  }
+
+  .modal-body {
+    padding: 0.75rem 0.85rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  /* Interactive Breadcrumb Path Builder Card */
+  .path-builder-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    background: rgba(128, 128, 128, 0.06);
+    border: 1px solid rgba(128, 128, 128, 0.18);
+    border-radius: 8px;
+    padding: 0.55rem 0.65rem;
+  }
+
+  .path-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .path-title-label {
     font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    opacity: 0.7;
+  }
+
+  .btn-subfolder-toggle {
+    border: 1px solid rgba(128, 128, 128, 0.25);
+    background: transparent;
+    padding: 0.15rem 0.45rem;
+    border-radius: 9999px;
+    font-size: 0.69rem;
+    font-weight: 600;
+    cursor: pointer;
+    color: inherit;
+    transition: all 0.15s ease;
+  }
+
+  .btn-subfolder-toggle.active {
+    background: rgba(37, 99, 235, 0.12);
+    color: #2563eb;
+    border-color: rgba(37, 99, 235, 0.35);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .btn-subfolder-toggle.active {
+      background: rgba(96, 165, 250, 0.16);
+      color: #93c5fd;
+      border-color: rgba(96, 165, 250, 0.35);
+    }
+  }
+
+  /* Breadcrumb Chain Container */
+  .path-chain {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.3rem;
+    background: #ffffff;
+    border: 1px solid rgba(128, 128, 128, 0.22);
+    border-radius: 6px;
+    padding: 0.3rem 0.45rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .path-chain {
+      background: #27272a;
+      border-color: #3f3f46;
+    }
+  }
+
+  .path-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    border: 1px solid rgba(128, 128, 128, 0.2);
+    background: rgba(128, 128, 128, 0.08);
+    border-radius: 4px;
+    padding: 0.12rem 0.35rem;
+    font-size: 0.71rem;
+    font-weight: 500;
+    cursor: pointer;
+    color: inherit;
+    transition: all 0.12s ease;
+  }
+
+  .path-pill:hover {
+    background: rgba(37, 99, 235, 0.12);
+    border-color: rgba(37, 99, 235, 0.3);
+    color: #2563eb;
+  }
+
+  .path-pill.active-target {
+    background: rgba(37, 99, 235, 0.15);
+    border-color: #2563eb;
+    color: #2563eb;
+    font-weight: 600;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .path-pill.active-target {
+      background: rgba(96, 165, 250, 0.18);
+      border-color: #60a5fa;
+      color: #93c5fd;
+    }
+  }
+
+  .pill-icon {
+    font-size: 0.7rem;
+  }
+
+  .pill-title {
+    max-width: 90px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .path-chevron {
+    font-size: 0.8rem;
+    font-weight: bold;
+    opacity: 0.4;
+    user-select: none;
+  }
+
+  /* Terminal Session Name Input */
+  .path-terminal-input-wrap {
+    display: flex;
+    align-items: center;
+    flex: 1;
+    min-width: 110px;
+    position: relative;
+  }
+
+  .path-terminal-input {
+    width: 100%;
+    border: none;
+    background: transparent;
+    padding: 0.15rem 1.2rem 0.15rem 0.2rem;
+    font-size: 0.73rem;
+    font-weight: 600;
+    color: #2563eb;
+    outline: none;
+  }
+
+  .path-terminal-input::placeholder {
+    color: rgba(128, 128, 128, 0.65);
+    font-weight: 400;
+    font-style: italic;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .path-terminal-input {
+      color: #60a5fa;
+    }
+  }
+
+  .btn-clear-terminal {
+    position: absolute;
+    right: 0;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-size: 0.7rem;
+    opacity: 0.5;
+    padding: 0.1rem;
+    color: inherit;
+  }
+
+  .btn-clear-terminal:hover {
+    opacity: 1;
+  }
+
+  .path-feedback-caption {
+    font-size: 0.68rem;
+    line-height: 1.25;
+  }
+
+  .feedback-text {
+    color: #475569;
+  }
+
+  .feedback-text.feedback-direct {
+    color: #059669;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .feedback-text {
+      color: #94a3b8;
+    }
+    .feedback-text.feedback-direct {
+      color: #34d399;
+    }
+  }
+
+  .modal-field-folder {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  /* Folder Header Row with + New Subfolder */
+  .folder-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .btn-new-subfolder-toggle {
+    border: 1px dashed rgba(37, 99, 235, 0.4);
+    background: rgba(37, 99, 235, 0.05);
+    color: #2563eb;
+    font-size: 0.69rem;
+    font-weight: 600;
+    padding: 0.15rem 0.45rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.12s ease;
+  }
+
+  .btn-new-subfolder-toggle:hover {
+    background: rgba(37, 99, 235, 0.12);
+    border-style: solid;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .btn-new-subfolder-toggle {
+      color: #93c5fd;
+      border-color: rgba(96, 165, 250, 0.4);
+      background: rgba(96, 165, 250, 0.08);
+    }
+    .btn-new-subfolder-toggle:hover {
+      background: rgba(96, 165, 250, 0.16);
+    }
+  }
+
+  /* Inline Create Subfolder Box */
+  .inline-create-box {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    background: rgba(37, 99, 235, 0.06);
+    border: 1px solid rgba(37, 99, 235, 0.25);
+    border-radius: 6px;
+    padding: 0.4rem 0.5rem;
+    animation: fadeIn 0.12s ease-out;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .inline-create-box {
+      background: rgba(96, 165, 250, 0.08);
+      border-color: rgba(96, 165, 250, 0.3);
+    }
+  }
+
+  .create-box-label {
+    font-size: 0.69rem;
+    opacity: 0.85;
+  }
+
+  .create-box-row {
+    display: flex;
+    gap: 0.35rem;
+  }
+
+  .create-box-input {
+    flex: 1;
+    padding: 0.25rem 0.45rem;
+    font-size: 0.74rem;
+    border-radius: 4px;
+    border: 1px solid rgba(128, 128, 128, 0.25);
+    background: #ffffff;
+    color: inherit;
+    outline: none;
+  }
+
+  .create-box-input:focus {
+    border-color: #2563eb;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .create-box-input {
+      background: #18181b;
+      border-color: #3f3f46;
+    }
+  }
+
+  .btn-create-submit {
+    border: none;
+    background: #2563eb;
+    color: #ffffff;
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 0.25rem 0.55rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.12s ease;
+  }
+
+  .btn-create-submit:hover:not(:disabled) {
+    background: #1d4ed8;
+  }
+
+  .btn-create-submit:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .modal-subheading {
+    font-size: 0.7rem;
+    font-weight: 600;
     opacity: 0.6;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  .modal-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.38rem 0.6rem;
+    font-size: 0.78rem;
+    border-radius: 6px;
+    border: 1px solid rgba(128, 128, 128, 0.25);
+    background-color: rgba(128, 128, 128, 0.04);
+    color: inherit;
+    outline: none;
+    transition: border-color 0.15s ease;
+  }
+
+  .modal-input:focus {
+    border-color: #2563eb;
+  }
+
+  .search-box {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+  }
+
+  .search-box-icon {
+    position: absolute;
+    left: 0.55rem;
+    font-size: 0.72rem;
+    opacity: 0.5;
+    pointer-events: none;
+  }
+
+  .search-box-input {
+    padding-left: 1.7rem;
+    padding-right: 1.6rem;
+  }
+
+  .search-clear-btn {
+    position: absolute;
+    right: 0.45rem;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    opacity: 0.5;
+    font-size: 0.75rem;
+    color: inherit;
+    padding: 0.1rem 0.25rem;
+  }
+
+  .search-clear-btn:hover {
+    opacity: 1;
+  }
+
+  /* Recent Folders */
+  .recent-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .recent-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    max-height: 52px;
+    overflow-y: auto;
+  }
+
+  .recent-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.2rem 0.45rem;
+    border-radius: 9999px;
+    font-size: 0.71rem;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid rgba(37, 99, 235, 0.25);
+    background-color: rgba(37, 99, 235, 0.06);
+    color: #2563eb;
+    max-width: 100%;
+    transition: all 0.12s ease;
+  }
+
+  .recent-chip:hover {
+    background-color: rgba(37, 99, 235, 0.12);
+  }
+
+  .recent-chip.active {
+    background-color: #2563eb;
+    color: #ffffff;
+    border-color: #1d4ed8;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .recent-chip {
+      background-color: rgba(96, 165, 250, 0.1);
+      border-color: rgba(96, 165, 250, 0.3);
+      color: #93c5fd;
+    }
+    .recent-chip:hover {
+      background-color: rgba(96, 165, 250, 0.18);
+    }
+    .recent-chip.active {
+      background-color: #3b82f6;
+      color: #ffffff;
+      border-color: #60a5fa;
+    }
+  }
+
+  .recent-icon {
+    font-size: 0.72rem;
+  }
+
+  .recent-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 250px;
+  }
+
+  /* Folder Options List */
+  .folder-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .folder-options-list {
+    max-height: 140px;
+    overflow-y: auto;
+    border: 1px solid rgba(128, 128, 128, 0.18);
+    border-radius: 6px;
+    padding: 0.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    background-color: rgba(128, 128, 128, 0.03);
+  }
+
+  .folder-option-empty {
+    text-align: center;
+    padding: 1rem 0.5rem;
+    font-size: 0.75rem;
+    opacity: 0.6;
+  }
+
+  .folder-option {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.32rem 0.45rem;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 0.74rem;
+    border: 1px solid transparent;
+    transition: all 0.12s ease;
+    user-select: none;
+    outline: none;
+  }
+
+  .folder-option:hover {
+    background-color: rgba(128, 128, 128, 0.08);
+  }
+
+  .folder-option.selected {
+    background-color: rgba(37, 99, 235, 0.12);
+    border-color: rgba(37, 99, 235, 0.35);
+    font-weight: 600;
+    color: #1d4ed8;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .folder-option.selected {
+      background-color: rgba(59, 130, 246, 0.2);
+      border-color: rgba(59, 130, 246, 0.45);
+      color: #93c5fd;
+    }
+  }
+
+  .folder-option-icon {
+    font-size: 0.8rem;
+    flex-shrink: 0;
+  }
+
+  .folder-option-path {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .folder-option-check {
+    font-weight: 700;
+    color: #2563eb;
+    font-size: 0.78rem;
+    flex-shrink: 0;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .folder-option-check {
+      color: #60a5fa;
+    }
+  }
+
+  /* Modal Footer */
+  .modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.65rem 0.85rem;
+    border-top: 1px solid rgba(128, 128, 128, 0.15);
+    background-color: rgba(128, 128, 128, 0.03);
+  }
+
+  .btn-modal-action {
+    padding: 0.38rem 0.75rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    border-radius: 6px;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all 0.15s ease;
+    user-select: none;
+  }
+
+  .btn-modal-action:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .btn-modal-cancel {
+    background: transparent;
+    border-color: rgba(128, 128, 128, 0.25);
+    color: inherit;
+  }
+
+  .btn-modal-cancel:hover:not(:disabled) {
+    background-color: rgba(128, 128, 128, 0.1);
+  }
+
+  .btn-modal-close-save {
+    background-color: #2563eb;
+    color: #ffffff;
+    border-color: #1d4ed8;
+  }
+
+  .btn-modal-close-save:hover:not(:disabled) {
+    background-color: #1d4ed8;
+  }
+
+  .btn-modal-save {
+    background-color: #059669;
+    color: #ffffff;
+    border-color: #047857;
+  }
+
+  .btn-modal-save:hover:not(:disabled) {
+    background-color: #047857;
   }
 
   /* In-Popup Bookmarks Styles */

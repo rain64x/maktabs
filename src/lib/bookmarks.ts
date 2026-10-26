@@ -95,10 +95,201 @@ export interface FolderNode {
   isMakTabsRoot?: boolean;
 }
 
+export interface BreadcrumbSegment {
+  id: string;
+  title: string;
+}
+
+export interface DestinationFolderOption {
+  id: string;
+  title: string;
+  path: string; // e.g. "makTabs → music → flute"
+  breadcrumbs: BreadcrumbSegment[];
+  depth: number;
+  isMakTabsRoot?: boolean;
+  isUnderMakTabs?: boolean;
+}
+
+export const RECENT_DESTINATIONS_STORAGE_KEY = 'maktabs_recent_destinations';
+
 /**
- * Stashes the active tab in the current window into the 'makTabs' folder.
+ * Returns formatted default timestamped title for session folders.
  */
-export async function stashCurrentTab(closeAfter = false): Promise<StashResult> {
+export function getDefaultSessionTitle(tabCount: number): string {
+  const now = new Date();
+  const dateStr = now.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+  });
+  const timeStr = now.toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  return `${dateStr}, ${timeStr} (${tabCount} ${tabCount === 1 ? 'tab' : 'tabs'})`;
+}
+
+/**
+ * Retrieves the list of recent destination folder IDs from local storage.
+ */
+export async function getRecentDestinationIds(): Promise<string[]> {
+  try {
+    const res = await browser.storage.local.get(RECENT_DESTINATIONS_STORAGE_KEY);
+    const list = res[RECENT_DESTINATIONS_STORAGE_KEY];
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Persists a destination folder ID to the front of recent destinations list.
+ */
+export async function saveRecentDestinationId(folderId: string): Promise<void> {
+  if (!folderId) return;
+  try {
+    const current = await getRecentDestinationIds();
+    const updated = [folderId, ...current.filter((id) => id !== folderId)].slice(0, 5);
+    await browser.storage.local.set({ [RECENT_DESTINATIONS_STORAGE_KEY]: updated });
+  } catch (err) {
+    console.warn('Failed to save recent destination folder:', err);
+  }
+}
+
+/**
+ * Recursively retrieves all bookmark folders formatted with breadcrumb paths.
+ * Folders inside or including makTabs are prioritized at the top with clean
+ * paths starting at "makTabs" (e.g. "makTabs → music → flute").
+ */
+export async function getDestinationFolders(): Promise<DestinationFolderOption[]> {
+  try {
+    // Ensure makTabs root exists
+    const makTabsRootId = await getOrCreateMakTabsFolder();
+    const tree = await browser.bookmarks.getTree();
+    const rootNodes = tree[0]?.children ?? [];
+
+    const makTabsFolders: DestinationFolderOption[] = [];
+    const otherFolders: DestinationFolderOption[] = [];
+
+    type RawBookmarkNode = (typeof rootNodes)[number];
+
+    function traverse(
+      node: RawBookmarkNode,
+      parentPath: string[],
+      isUnderMakTabs: boolean,
+      parentBreadcrumbs: BreadcrumbSegment[]
+    ) {
+      if (node.url) return; // Only process folders
+
+      const isRootContainer = node.id === '0' || node.id === 'root________';
+      const nodeTitle = node.title || (isRootContainer ? 'Root' : 'Untitled Folder');
+      const isMakTabs =
+        node.id === makTabsRootId ||
+        nodeTitle.toLowerCase() === MAKTABS_FOLDER_NAME.toLowerCase();
+      const currentIsUnderMakTabs = isUnderMakTabs || isMakTabs;
+
+      let currentPath: string[];
+      let currentBreadcrumbs: BreadcrumbSegment[];
+
+      if (isRootContainer) {
+        currentPath = [];
+        currentBreadcrumbs = [];
+      } else if (isMakTabs) {
+        // Anchor breadcrumb path directly at makTabs for clean display
+        currentPath = [MAKTABS_FOLDER_NAME];
+        currentBreadcrumbs = [{ id: node.id, title: MAKTABS_FOLDER_NAME }];
+      } else {
+        currentPath = [...parentPath, nodeTitle];
+        currentBreadcrumbs = [...parentBreadcrumbs, { id: node.id, title: nodeTitle }];
+      }
+
+      if (!isRootContainer && currentPath.length > 0) {
+        const option: DestinationFolderOption = {
+          id: node.id,
+          title: nodeTitle,
+          path: currentPath.join(' → '),
+          breadcrumbs: currentBreadcrumbs,
+          depth: currentPath.length - 1,
+          isMakTabsRoot: isMakTabs,
+          isUnderMakTabs: currentIsUnderMakTabs,
+        };
+
+        if (currentIsUnderMakTabs) {
+          makTabsFolders.push(option);
+        } else {
+          otherFolders.push(option);
+        }
+      }
+
+      if (node.children) {
+        for (const child of node.children) {
+          traverse(child, currentPath, currentIsUnderMakTabs, currentBreadcrumbs);
+        }
+      }
+    }
+
+    for (const root of rootNodes) {
+      traverse(root, [], false, []);
+    }
+
+    // Sort: Ensure makTabs root is first, then makTabs subfolders, followed by other folders
+    makTabsFolders.sort((a, b) => {
+      if (a.isMakTabsRoot) return -1;
+      if (b.isMakTabsRoot) return 1;
+      return a.path.localeCompare(b.path);
+    });
+
+    otherFolders.sort((a, b) => a.path.localeCompare(b.path));
+
+    return [...makTabsFolders, ...otherFolders];
+  } catch (err) {
+    console.warn('Failed to load destination folders:', err);
+    return [];
+  }
+}
+
+/**
+ * Resolves or creates a nested subfolder path under a parent folder.
+ * For example: parentId + ['music', 'flute'] will find or create 'music' under parentId,
+ * and then find or create 'flute' under 'music', returning 'flute's id.
+ */
+export async function resolveOrCreateSubfolderPath(
+  parentId: string,
+  pathSegments: string[]
+): Promise<string> {
+  let currentParentId = parentId;
+
+  for (const segment of pathSegments) {
+    const trimmed = segment.trim();
+    if (!trimmed) continue;
+
+    const contents = await getFolderContents(currentParentId);
+    const existing = contents.find(
+      (item) => !item.url && item.title.toLowerCase() === trimmed.toLowerCase()
+    );
+
+    if (existing) {
+      currentParentId = existing.id;
+    } else {
+      const created = await browser.bookmarks.create({
+        parentId: currentParentId,
+        title: trimmed,
+      });
+      currentParentId = created.id;
+    }
+  }
+
+  return currentParentId;
+}
+
+/**
+ * Stashes the active tab in the current window into a destination folder.
+ */
+export async function stashCurrentTab(
+  closeAfter = false,
+  destinationFolderId?: string,
+  customTitle?: string
+): Promise<StashResult> {
   try {
     const tabs = await browser.tabs.query({ active: true, currentWindow: true });
     const activeTab = tabs[0];
@@ -123,10 +314,25 @@ export async function stashCurrentTab(closeAfter = false): Promise<StashResult> 
       };
     }
 
-    const folderId = await getOrCreateMakTabsFolder();
+    let folderId = destinationFolderId || (await getOrCreateMakTabsFolder());
+    let finalTitle =
+      customTitle && customTitle.trim()
+        ? customTitle.trim()
+        : activeTab.title || activeTab.url;
+
+    // If title has slashes, resolve path
+    if (finalTitle.includes('/')) {
+      const segments = finalTitle.split('/').map((s) => s.trim()).filter(Boolean);
+      if (segments.length > 1) {
+        const intermediate = segments.slice(0, -1);
+        folderId = await resolveOrCreateSubfolderPath(folderId, intermediate);
+        finalTitle = segments[segments.length - 1] ?? (activeTab.title || activeTab.url);
+      }
+    }
+
     await browser.bookmarks.create({
       parentId: folderId,
-      title: activeTab.title || activeTab.url,
+      title: finalTitle,
       url: activeTab.url,
       index: 0,
     });
@@ -135,12 +341,14 @@ export async function stashCurrentTab(closeAfter = false): Promise<StashResult> 
       await browser.tabs.remove(activeTab.id);
     }
 
+    await saveRecentDestinationId(folderId);
+
     return {
       success: true,
       count: 1,
       message: closeAfter
         ? 'Saved and closed this tab'
-        : 'Saved this tab to makTabs',
+        : `Saved "${finalTitle}"`,
     };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
@@ -153,9 +361,16 @@ export async function stashCurrentTab(closeAfter = false): Promise<StashResult> 
 }
 
 /**
- * Stashes all eligible tabs in the current window into a timestamped subfolder inside 'makTabs'.
+ * Stashes all eligible tabs in the current window into the destination folder.
+ * If createSubfolder is true and customTitle is non-empty, creates an enclosing session folder.
+ * If createSubfolder is false or customTitle is empty, tabs are saved directly into the destination folder.
  */
-export async function stashAllTabs(closeAfter = false): Promise<StashResult> {
+export async function stashAllTabs(
+  closeAfter = false,
+  destinationFolderId?: string,
+  customTitle?: string,
+  createSubfolder = true
+): Promise<StashResult> {
   try {
     const tabs = await browser.tabs.query({ currentWindow: true });
     const validTabs = tabs.filter((t) => !t.pinned && isStashableUrl(t.url));
@@ -168,25 +383,34 @@ export async function stashAllTabs(closeAfter = false): Promise<StashResult> {
       };
     }
 
-    const rootFolderId = await getOrCreateMakTabsFolder();
+    let targetParentId = destinationFolderId || (await getOrCreateMakTabsFolder());
+    const trimmedTitle = customTitle?.trim() || '';
 
-    const now = new Date();
-    const dateStr = now.toLocaleDateString(undefined, {
-      month: 'short',
-      day: 'numeric',
-    });
-    const timeStr = now.toLocaleTimeString(undefined, {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    });
-    const sessionTitle = `${dateStr}, ${timeStr} (${validTabs.length} tabs)`;
+    let sessionFolderTitle = '';
+    if (createSubfolder && trimmedTitle) {
+      if (trimmedTitle.includes('/')) {
+        const segments = trimmedTitle.split('/').map((s) => s.trim()).filter(Boolean);
+        if (segments.length > 1) {
+          const intermediate = segments.slice(0, -1);
+          targetParentId = await resolveOrCreateSubfolderPath(targetParentId, intermediate);
+          sessionFolderTitle = segments[segments.length - 1] ?? '';
+        } else {
+          sessionFolderTitle = segments[0] ?? trimmedTitle;
+        }
+      } else {
+        sessionFolderTitle = trimmedTitle;
+      }
+    }
 
-    const sessionFolder = await browser.bookmarks.create({
-      parentId: rootFolderId,
-      title: sessionTitle,
-      index: 0,
-    });
+    let finalContainerId = targetParentId;
+    if (createSubfolder && sessionFolderTitle) {
+      const createdFolder = await browser.bookmarks.create({
+        parentId: targetParentId,
+        title: sessionFolderTitle,
+        index: 0,
+      });
+      finalContainerId = createdFolder.id;
+    }
 
     let savedCount = 0;
     const tabIdsToClose: number[] = [];
@@ -195,7 +419,7 @@ export async function stashAllTabs(closeAfter = false): Promise<StashResult> {
       if (tab.url) {
         try {
           await browser.bookmarks.create({
-            parentId: sessionFolder.id,
+            parentId: finalContainerId,
             title: tab.title || tab.url,
             url: tab.url,
           });
@@ -222,12 +446,16 @@ export async function stashAllTabs(closeAfter = false): Promise<StashResult> {
       }
     }
 
+    await saveRecentDestinationId(targetParentId);
+
+    const destinationDesc = sessionFolderTitle ? sessionFolderTitle : 'selected folder';
+
     return {
       success: savedCount > 0,
       count: savedCount,
       message: closeAfter
-        ? `Saved and closed ${savedCount} tabs from this window`
-        : `Saved ${savedCount} tabs from this window to makTabs / ${sessionTitle}`,
+        ? `Saved and closed ${savedCount} tabs`
+        : `Saved ${savedCount} tabs to ${destinationDesc}`,
     };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);

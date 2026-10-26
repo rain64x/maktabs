@@ -14,7 +14,7 @@ By leveraging native browser bookmarks, your stashed sessions and organized book
 
 ## ✨ Features
 
-- **⚡ Instant Stashing**: Stash current tab or current window with a single click into **Bookmarks Bar > makTabs**, placing newer sessions at the top by default.
+- **⚡ Interactive Breadcrumb Path Builder & Subfolder Creator**: Stash tabs using a unified breadcrumb path (`makTabs › music › flute › [Session Name]`), create new subfolders on the fly right inside the modal, choose between wrapping tabs in a subfolder or direct folder saving, navigate parent folders with 1 click, and access recent destinations instantly.
 - **🌐 Website Favicons & Fallback Monograms**: Crisp website favicons loaded directly from local browser cache without external trackers, paired with pastel monogram fallbacks.
 - **💤 Memory Saver Mode (Lazy Tab Restore)**: Spawn dozens or hundreds of restored tabs without RAM lag, CPU throttling, or network overload. Background tabs are opened in a paused, ultra-lightweight state with the website's logo and title, and automatically wake up and navigate to the real URL the instant you switch to or focus on them.
 - **🌲 Interactive Bookmarks Tree & Organizer**: Visualize your entire bookmarks hierarchy with full multi-level recursive folder traversal (subfolders, sub-subfolders, etc.), expandable/collapsible chevrons, and instant folder switching in list, grid, or tree views.
@@ -63,7 +63,7 @@ MakTabs requests only the minimum permissions necessary:
 | :--- | :--- |
 | `bookmarks` | Create, organize, read, move, and manage stashed tab folders and bookmarks. |
 | `tabs` | Read URLs and titles of tabs to stash, close stashed tabs, and restore tabs. |
-| `storage` | Save user preferences (target mode, active popup view). |
+| `storage` | Save user preferences (target mode, active popup view, recent destination folders). |
 | `favicon` | Read cached website favicons locally from the browser cache without external trackers (Chromium). |
 
 ---
