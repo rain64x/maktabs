@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="public/logo.svg" width="100" height="100" alt="MakTabs Logo" />
+</p>
+
 # MakTabs
 
 > **Stash open tabs into native browser bookmarks — with automatic cloud sync, zero data lock-in, and OneTab migration.**

@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1E3A8A"/>
+      <stop offset="100%" stop-color="#2563EB"/>
+    </linearGradient>
+    <linearGradient id="ribbonGrad" x1="88" y1="16" x2="88" y2="78" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#F59E0B"/>
+      <stop offset="100%" stop-color="#D97706"/>
+    </linearGradient>
+    <filter id="winShadow" x="6" y="20" width="116" height="96" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-opacity="0.3"/>
+    </filter>
+    <filter id="ribbonShadow" x="66" y="14" width="44" height="72" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- Squircle Base -->
+  <rect width="128" height="128" rx="28" fill="url(#bgGrad)"/>
+
+  <!-- Browser Window with Shadow -->
+  <g filter="url(#winShadow)">
+    <rect x="11" y="24" width="106" height="88" rx="8" fill="#F8FAFC"/>
+    <!-- Titlebar separator -->
+    <line x1="11" y1="38" x2="117" y2="38" stroke="#E2E8F0" stroke-width="1"/>
+  </g>
+
+  <!-- Mac Traffic Light Buttons -->
+  <circle cx="18" cy="31" r="2.5" fill="#FF5F56"/>
+  <circle cx="25" cy="31" r="2.5" fill="#FFBD2E"/>
+  <circle cx="32" cy="31" r="2.5" fill="#27C93F"/>
+
+  <!-- Browser Tab in Titlebar -->
+  <path d="M38 27C38 25.8954 38.8954 25 40 25H72C73.1046 25 74 25.8954 74 27V38H38V27Z" fill="white"/>
+  <rect x="44" y="29.5" width="24" height="3" rx="1.5" fill="#CBD5E1"/>
+
+  <!-- Window Content Skeleton -->
+  <rect x="18" y="44" width="56" height="5" rx="2.5" fill="#E2E8F0"/>
+  <rect x="18" y="54" width="44" height="20" rx="3.5" fill="#EEF2F6"/>
+  <rect x="18" y="78" width="44" height="26" rx="3.5" fill="#EEF2F6"/>
+
+  <!-- Bookmark Ribbon (Wider, balanced height) with Shadow -->
+  <g filter="url(#ribbonShadow)">
+    <path d="M72 17C72 15.8954 72.8954 15 74 15H102C103.105 15 104 15.8954 104 17V78L88 64L72 78V17Z" fill="url(#ribbonGrad)"/>
+    <!-- Bookmark Star / Icon -->
+    <path d="M88 36L90.5 42.5H97.5L92 46.5L94 53L88 49L82 53L84 46.5L78.5 42.5H85.5L88 36Z" fill="white"/>
+  </g>
+</svg>
