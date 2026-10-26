@@ -13,5 +13,23 @@ export default defineConfig({
       'storage',
       ...(browser === 'firefox' ? [] : ['favicon']),
     ],
+    action: {
+      default_title: 'MakTabs',
+      default_icon: {
+        16: 'icon/16.png',
+        32: 'icon/32.png',
+        48: 'icon/48.png',
+      },
+    },
+    ...(browser === 'firefox'
+      ? {
+          browser_specific_settings: {
+            gecko: {
+              id: 'maktabs@rain64x.github.io',
+              strict_min_version: '109.0',
+            },
+          },
+        }
+      : {}),
   }),
 });
