@@ -101,6 +101,7 @@ export async function stashCurrentTab(closeAfter = false): Promise<StashResult> 
       parentId: folderId,
       title: activeTab.title || activeTab.url,
       url: activeTab.url,
+      index: 0,
     });
 
     if (closeAfter && activeTab.id !== undefined) {
@@ -157,6 +158,7 @@ export async function stashAllTabs(closeAfter = false): Promise<StashResult> {
     const sessionFolder = await browser.bookmarks.create({
       parentId: rootFolderId,
       title: sessionTitle,
+      index: 0,
     });
 
     let savedCount = 0;

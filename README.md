@@ -14,7 +14,7 @@ By leveraging browser bookmarks, your stashed sessions inherit built-in cross-de
 
 ## ✨ Features
 
-- **⚡ Instant Stashing**: Stash current tab, current window, or all open windows with a single click.
+- **⚡ Instant Stashing**: Stash current tab or current window with a single click, placing newer sessions at the top by default.
 - **☁️ Native & Self-Hosted Cloud Sync**: Sessions are stored directly in native bookmark folders, synchronizing across all your devices automatically.
 - **📥 OneTab Importer**: Effortlessly migrate existing OneTab export lists (`URL | Title`) into organized, timestamped bookmark sessions.
 - **🛡️ Data Safety & URL Filtering**: Automatically skips non-bookmarkable internal browser tabs (such as `chrome://`, `edge://`, `about:`, and `devtools://`).
