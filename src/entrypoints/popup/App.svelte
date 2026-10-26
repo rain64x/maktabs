@@ -1,11 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { browser } from 'wxt/browser';
   import {
     stashCurrentTab,
     stashAllTabs,
     getStashableTabsInfo,
   } from '@/lib/bookmarks';
 
+  let target = $state<'window' | 'this'>('window');
   let isProcessing = $state(false);
   let status = $state<{
     type: 'idle' | 'success' | 'warning' | 'error';
@@ -18,6 +20,12 @@
   let totalValidTabs = $state<number | null>(null);
   let isCurrentValid = $state(true);
 
+  let canExecute = $derived(
+    target === 'window'
+      ? totalValidTabs === null || totalValidTabs > 0
+      : isCurrentValid
+  );
+
   async function refreshTabInfo() {
     try {
       const info = await getStashableTabsInfo();
@@ -28,39 +36,34 @@
     }
   }
 
-  onMount(() => {
-    refreshTabInfo();
+  onMount(async () => {
+    await refreshTabInfo();
+    try {
+      const stored = await browser.storage.local.get('maktabs_target');
+      if (stored.maktabs_target === 'window' || stored.maktabs_target === 'this') {
+        target = stored.maktabs_target;
+      }
+    } catch {
+      // Ignore storage error
+    }
   });
 
-  async function handleStashCurrent() {
-    if (isProcessing) return;
-    isProcessing = true;
-    status = { type: 'idle', message: '' };
-
-    try {
-      const res = await stashCurrentTab();
-      status = {
-        type: res.success ? 'success' : 'warning',
-        message: res.message,
-      };
-      await refreshTabInfo();
-    } catch (err) {
-      status = {
-        type: 'error',
-        message: err instanceof Error ? err.message : 'Failed to stash tab',
-      };
-    } finally {
-      isProcessing = false;
-    }
+  function selectTarget(newTarget: 'window' | 'this') {
+    target = newTarget;
+    browser.storage.local.set({ maktabs_target: newTarget }).catch(() => {});
   }
 
-  async function handleStashAll() {
-    if (isProcessing) return;
+  async function handleExecute(closeAfter: boolean) {
+    if (isProcessing || !canExecute) return;
     isProcessing = true;
     status = { type: 'idle', message: '' };
 
     try {
-      const res = await stashAllTabs();
+      const res =
+        target === 'window'
+          ? await stashAllTabs(closeAfter)
+          : await stashCurrentTab(closeAfter);
+
       status = {
         type: res.success ? 'success' : 'warning',
         message: res.message,
@@ -69,7 +72,7 @@
     } catch (err) {
       status = {
         type: 'error',
-        message: err instanceof Error ? err.message : 'Failed to stash tabs',
+        message: err instanceof Error ? err.message : 'Action failed',
       };
     } finally {
       isProcessing = false;
@@ -86,30 +89,58 @@
     <p class="subtitle">Stash tabs into native bookmarks</p>
   </header>
 
-  <div class="actions">
-    <button
-      type="button"
-      class="btn btn-primary"
-      onclick={handleStashCurrent}
-      disabled={isProcessing}
-      title={isCurrentValid ? 'Stash active tab to makTabs' : 'Current tab cannot be bookmarked'}
-    >
-      <span class="btn-icon">📌</span>
-      <span class="btn-text">This tab</span>
-    </button>
+  <div class="panel">
+    <!-- Row 1: Target Segmented Pill -->
+    <div class="control-row">
+      <span class="label">Target:</span>
+      <div class="segmented-pill" role="radiogroup" aria-label="Target tabs selection">
+        <button
+          type="button"
+          role="radio"
+          aria-checked={target === 'window'}
+          class="pill-segment {target === 'window' ? 'active' : ''}"
+          onclick={() => selectTarget('window')}
+          title="Target all open tabs in this window"
+        >
+          This window {totalValidTabs !== null ? `(${totalValidTabs})` : ''}
+        </button>
+        <button
+          type="button"
+          role="radio"
+          aria-checked={target === 'this'}
+          class="pill-segment {target === 'this' ? 'active' : ''}"
+          onclick={() => selectTarget('this')}
+          title={isCurrentValid ? 'Target current active tab' : 'Current tab cannot be bookmarked'}
+        >
+          This tab
+        </button>
+      </div>
+    </div>
 
-    <button
-      type="button"
-      class="btn btn-secondary"
-      onclick={handleStashAll}
-      disabled={isProcessing || (totalValidTabs !== null && totalValidTabs === 0)}
-      title="Stash all open tabs in this window"
-    >
-      <span class="btn-icon">📑</span>
-      <span class="btn-text">
-        All tabs {totalValidTabs !== null ? `(${totalValidTabs})` : ''}
-      </span>
-    </button>
+    <!-- Row 2: Action Buttons -->
+    <div class="control-row">
+      <span class="label">Action:</span>
+      <div class="btn-group">
+        <button
+          type="button"
+          class="btn-sm btn-action btn-close"
+          onclick={() => handleExecute(true)}
+          disabled={isProcessing || !canExecute}
+          title="Save target tab(s) to makTabs bookmarks and close them"
+        >
+          Save and Close
+        </button>
+        <button
+          type="button"
+          class="btn-sm btn-action btn-save"
+          onclick={() => handleExecute(false)}
+          disabled={isProcessing || !canExecute}
+          title="Save target tab(s) to makTabs bookmarks without closing"
+        >
+          Save only
+        </button>
+      </div>
+    </div>
   </div>
 
   {#if status.message}
@@ -137,11 +168,11 @@
 <style>
   .container {
     width: 320px;
-    padding: 1.25rem 1rem 1rem;
+    padding: 1.1rem 1rem 0.9rem;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 0.85rem;
   }
 
   header {
@@ -161,101 +192,185 @@
   }
 
   h1 {
-    font-size: 1.35rem;
+    font-size: 1.3rem;
     font-weight: 700;
     margin: 0;
     letter-spacing: -0.02em;
   }
 
   .subtitle {
-    font-size: 0.8rem;
+    font-size: 0.78rem;
     opacity: 0.65;
-    margin: 0.25rem 0 0 0;
+    margin: 0.2rem 0 0 0;
   }
 
-  .actions {
+  .panel {
     display: flex;
+    flex-direction: column;
     gap: 0.75rem;
+    background: rgba(128, 128, 128, 0.05);
+    border: 1px solid rgba(128, 128, 128, 0.12);
+    border-radius: 8px;
+    padding: 0.75rem 0.7rem;
   }
 
-  .btn {
-    flex: 1;
-    display: inline-flex;
+  .control-row {
+    display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 0.4rem;
-    padding: 0.65rem 0.75rem;
-    font-size: 0.9rem;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  .label {
+    font-size: 0.82rem;
     font-weight: 600;
-    border-radius: 8px;
+    opacity: 0.8;
+    min-width: 48px;
+    user-select: none;
+  }
+
+  /* Segmented Pill Toggle */
+  .segmented-pill {
+    display: inline-flex;
+    background-color: #e2e8f0;
+    padding: 2.5px;
+    border-radius: 9999px;
+    position: relative;
+    user-select: none;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
+    flex: 1;
+    justify-content: flex-end;
+    max-width: 200px;
+  }
+
+  .pill-segment {
+    flex: 1;
+    border: none;
+    background: transparent;
+    padding: 0.32rem 0.6rem;
+    font-size: 0.76rem;
+    font-weight: 500;
+    color: #64748b;
+    border-radius: 9999px;
+    cursor: pointer;
+    transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+    white-space: nowrap;
+    text-align: center;
+    outline: none;
+  }
+
+  .pill-segment:hover:not(.active) {
+    color: #1e293b;
+  }
+
+  .pill-segment.active {
+    background-color: #ffffff;
+    color: #0f172a;
+    font-weight: 600;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.08);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .segmented-pill {
+      background-color: #27272a;
+      box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3);
+    }
+
+    .pill-segment {
+      color: #a1a1aa;
+    }
+
+    .pill-segment:hover:not(.active) {
+      color: #f4f4f5;
+    }
+
+    .pill-segment.active {
+      background-color: #3b82f6;
+      color: #ffffff;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    }
+  }
+
+  .btn-group {
+    display: flex;
+    gap: 0.4rem;
+    flex: 1;
+    justify-content: flex-end;
+  }
+
+  /* Compact Action Buttons */
+  .btn-sm {
+    padding: 0.38rem 0.55rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    border-radius: 6px;
     cursor: pointer;
     transition: all 0.15s ease;
     border: 1px solid transparent;
     user-select: none;
+    white-space: nowrap;
+    text-align: center;
+    min-width: 82px;
   }
 
-  .btn:disabled {
-    opacity: 0.5;
+  .btn-sm:disabled {
+    opacity: 0.45;
     cursor: not-allowed;
     pointer-events: none;
   }
 
-  .btn-primary {
+  .btn-action.btn-close {
     background-color: #2563eb;
     color: #ffffff;
+    border-color: #1d4ed8;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
   }
 
-  .btn-primary:hover:not(:disabled) {
+  .btn-action.btn-close:hover:not(:disabled) {
     background-color: #1d4ed8;
   }
 
-  .btn-primary:active:not(:disabled) {
+  .btn-action.btn-close:active:not(:disabled) {
     background-color: #1e40af;
   }
 
-  .btn-secondary {
+  .btn-action.btn-save {
     background-color: #f1f5f9;
     color: #0f172a;
     border-color: #cbd5e1;
   }
 
-  .btn-secondary:hover:not(:disabled) {
+  .btn-action.btn-save:hover:not(:disabled) {
     background-color: #e2e8f0;
   }
 
-  .btn-secondary:active:not(:disabled) {
+  .btn-action.btn-save:active:not(:disabled) {
     background-color: #cbd5e1;
   }
 
   @media (prefers-color-scheme: dark) {
-    .btn-secondary {
+    .btn-action.btn-save {
       background-color: #27272a;
       color: #f4f4f5;
       border-color: #3f3f46;
     }
 
-    .btn-secondary:hover:not(:disabled) {
+    .btn-action.btn-save:hover:not(:disabled) {
       background-color: #3f3f46;
     }
 
-    .btn-secondary:active:not(:disabled) {
+    .btn-action.btn-save:active:not(:disabled) {
       background-color: #52525b;
     }
-  }
-
-  .btn-icon {
-    font-size: 1rem;
-    line-height: 1;
   }
 
   .status-banner {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    padding: 0.5rem 0.75rem;
+    padding: 0.45rem 0.65rem;
     border-radius: 6px;
-    font-size: 0.8rem;
+    font-size: 0.78rem;
     line-height: 1.35;
     animation: fadeIn 0.15s ease-in;
   }
@@ -316,7 +431,7 @@
 
   footer {
     border-top: 1px solid rgba(128, 128, 128, 0.15);
-    padding-top: 0.5rem;
+    padding-top: 0.45rem;
     text-align: center;
   }
 

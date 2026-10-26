@@ -71,7 +71,7 @@ export interface StashResult {
 /**
  * Stashes the active tab in the current window into the 'makTabs' folder.
  */
-export async function stashCurrentTab(): Promise<StashResult> {
+export async function stashCurrentTab(closeAfter = false): Promise<StashResult> {
   try {
     const tabs = await browser.tabs.query({ active: true, currentWindow: true });
     const activeTab = tabs[0];
@@ -95,10 +95,16 @@ export async function stashCurrentTab(): Promise<StashResult> {
       url: activeTab.url,
     });
 
+    if (closeAfter && activeTab.id !== undefined) {
+      await browser.tabs.remove(activeTab.id);
+    }
+
     return {
       success: true,
       count: 1,
-      message: 'Saved this tab to makTabs',
+      message: closeAfter
+        ? 'Saved and closed this tab'
+        : 'Saved this tab to makTabs',
     };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
@@ -113,7 +119,7 @@ export async function stashCurrentTab(): Promise<StashResult> {
 /**
  * Stashes all eligible tabs in the current window into a timestamped subfolder inside 'makTabs'.
  */
-export async function stashAllTabs(): Promise<StashResult> {
+export async function stashAllTabs(closeAfter = false): Promise<StashResult> {
   try {
     const tabs = await browser.tabs.query({ currentWindow: true });
     const validTabs = tabs.filter((t) => isStashableUrl(t.url));
@@ -146,6 +152,8 @@ export async function stashAllTabs(): Promise<StashResult> {
     });
 
     let savedCount = 0;
+    const tabIdsToClose: number[] = [];
+
     for (const tab of validTabs) {
       if (tab.url) {
         try {
@@ -155,16 +163,34 @@ export async function stashAllTabs(): Promise<StashResult> {
             url: tab.url,
           });
           savedCount++;
+          if (tab.id !== undefined) {
+            tabIdsToClose.push(tab.id);
+          }
         } catch (itemErr) {
           console.warn(`Skipped tab "${tab.title}":`, itemErr);
         }
       }
     }
 
+    if (closeAfter && tabIdsToClose.length > 0) {
+      try {
+        const currentWin = await browser.windows.getCurrent();
+        if (tabIdsToClose.length >= tabs.length && currentWin.id !== undefined) {
+          await browser.windows.remove(currentWin.id);
+        } else {
+          await browser.tabs.remove(tabIdsToClose);
+        }
+      } catch {
+        await browser.tabs.remove(tabIdsToClose);
+      }
+    }
+
     return {
       success: savedCount > 0,
       count: savedCount,
-      message: `Saved ${savedCount} tabs to makTabs / ${sessionTitle}`,
+      message: closeAfter
+        ? `Saved and closed ${savedCount} tabs from this window`
+        : `Saved ${savedCount} tabs from this window to makTabs / ${sessionTitle}`,
     };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
