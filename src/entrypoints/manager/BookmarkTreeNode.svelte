@@ -1,5 +1,6 @@
 <script lang="ts">
   import BookmarkTreeNode from './BookmarkTreeNode.svelte';
+  import FaviconBadge from '@/lib/FaviconBadge.svelte';
   import {
     extractDomain,
     getDomainInitial,
@@ -135,13 +136,14 @@
         {isMakTabsRoot ? '⚡' : isExpanded ? '📂' : '📁'}
       </div>
     {:else}
-      <div
-        class="tree-badge"
-        style="background-color: {badgeColor};"
-        title={domain}
-      >
+      <FaviconBadge
+        url={node.url}
+        title={node.title}
+        {domain}
         {initial}
-      </div>
+        {badgeColor}
+        size="tree"
+      />
     {/if}
 
     <!-- Title and Metadata -->

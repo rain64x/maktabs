@@ -4,9 +4,14 @@ import { defineConfig } from 'wxt';
 export default defineConfig({
   srcDir: 'src',
   modules: ['@wxt-dev/module-svelte'],
-  manifest: {
+  manifest: ({ browser }) => ({
     name: 'MakTabs',
     description: 'Stash open tabs into native browser bookmarks with built-in cloud sync.',
-    permissions: ['bookmarks', 'tabs', 'storage'],
-  },
+    permissions: [
+      'bookmarks',
+      'tabs',
+      'storage',
+      ...(browser === 'firefox' ? [] : ['favicon']),
+    ],
+  }),
 });

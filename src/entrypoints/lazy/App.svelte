@@ -6,6 +6,7 @@
     getDomainInitial,
     getDomainColor,
   } from '@/lib/bookmarks';
+  import FaviconBadge from '@/lib/FaviconBadge.svelte';
 
   let targetUrl = $state('');
   let pageTitle = $state('Paused Tab');
@@ -71,9 +72,16 @@
       <span>MakTabs • Memory Saver Mode</span>
     </div>
 
-    <!-- Domain Monogram Badge -->
-    <div class="monogram-badge" style="background-color: {badgeColor};">
-      {initial}
+    <!-- Domain Favicon / Monogram Badge -->
+    <div class="hero-badge-wrap">
+      <FaviconBadge
+        url={targetUrl}
+        title={pageTitle}
+        {domain}
+        {initial}
+        {badgeColor}
+        size="large"
+      />
     </div>
 
     <!-- Website Title & Domain -->
@@ -151,18 +159,10 @@
     border-radius: 3px;
   }
 
-  .monogram-badge {
-    width: 58px;
-    height: 58px;
-    border-radius: 14px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.45rem;
-    font-weight: 700;
-    color: #ffffff;
-    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+  .hero-badge-wrap {
     margin-bottom: 1.15rem;
+    display: flex;
+    justify-content: center;
   }
 
   .page-title {

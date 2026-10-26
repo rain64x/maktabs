@@ -15,6 +15,7 @@ By leveraging native browser bookmarks, your stashed sessions and organized book
 ## ✨ Features
 
 - **⚡ Instant Stashing**: Stash current tab or current window with a single click into **Bookmarks Bar > makTabs**, placing newer sessions at the top by default.
+- **🌐 Website Favicons & Fallback Monograms**: Crisp website favicons loaded directly from local browser cache without external trackers, paired with pastel monogram fallbacks.
 - **💤 Memory Saver Mode (Lazy Tab Restore)**: Spawn dozens or hundreds of restored tabs without RAM lag, CPU throttling, or network overload. Background tabs are opened in a paused, ultra-lightweight state with the website's logo and title, and automatically wake up and navigate to the real URL the instant you switch to or focus on them.
 - **🌲 Interactive Bookmarks Tree & Organizer**: Visualize your entire bookmarks hierarchy as an interactive tree, list, or responsive grid.
 - **↕️ Drag & Drop Reordering & Nesting**:
@@ -62,6 +63,7 @@ MakTabs requests only the minimum permissions necessary:
 | `bookmarks` | Create, organize, read, move, and manage stashed tab folders and bookmarks. |
 | `tabs` | Read URLs and titles of tabs to stash, close stashed tabs, and restore tabs. |
 | `storage` | Save user preferences (target mode, active popup view). |
+| `favicon` | Read cached website favicons locally from the browser cache without external trackers (Chromium). |
 
 ---
 

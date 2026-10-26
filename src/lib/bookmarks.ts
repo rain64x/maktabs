@@ -663,3 +663,36 @@ export function getDomainColor(domain: string): string {
   const index = Math.abs(hash) % colors.length;
   return colors[index] ?? '#2563eb';
 }
+
+/**
+ * Constructs a favicon URL for a bookmarked URL.
+ * In Chrome/Chromium, uses the official internal chrome-extension://<id>/_favicon/ cache (100% offline & local).
+ * In Firefox or environments where _favicon is unavailable, falls back to direct origin /favicon.ico.
+ */
+export function getFaviconUrl(url?: string, size = 32): string {
+  if (!url) return '';
+  try {
+    const parsed = new URL(url);
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return '';
+    }
+
+    const isFirefox =
+      typeof navigator !== 'undefined' &&
+      navigator.userAgent.toLowerCase().includes('firefox');
+
+    // Chromium built-in favicon API (MV3 with 'favicon' permission)
+    if (!isFirefox && browser?.runtime?.getURL) {
+      const getUrl = browser.runtime.getURL as (path: string) => string;
+      const faviconApiUrl = new URL(getUrl('/_favicon/'));
+      faviconApiUrl.searchParams.set('pageUrl', url);
+      faviconApiUrl.searchParams.set('size', size.toString());
+      return faviconApiUrl.toString();
+    }
+
+    // Direct origin favicon fallback
+    return `${parsed.origin}/favicon.ico`;
+  } catch {
+    return '';
+  }
+}

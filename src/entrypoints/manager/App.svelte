@@ -27,6 +27,7 @@
     type FolderNode,
   } from '@/lib/bookmarks';
   import BookmarkTreeNode from './BookmarkTreeNode.svelte';
+  import FaviconBadge from '@/lib/FaviconBadge.svelte';
   import './manager.css';
 
   // Navigation & Data State
@@ -1108,13 +1109,14 @@
                     📁
                   </div>
                 {:else}
-                  <div
-                    class="item-badge"
-                    style="background-color: {badgeColor};"
-                    title={domain}
-                  >
+                  <FaviconBadge
+                    url={item.url}
+                    title={item.title}
+                    {domain}
                     {initial}
-                  </div>
+                    {badgeColor}
+                    size="normal"
+                  />
                 {/if}
 
                 <!-- Title & Metadata -->

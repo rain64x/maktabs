@@ -17,6 +17,7 @@
     getDomainColor,
     type BookmarkItem,
   } from '@/lib/bookmarks';
+  import FaviconBadge from '@/lib/FaviconBadge.svelte';
 
   // Mode View: Stash or Bookmarks
   let activeTab = $state<'stash' | 'bookmarks'>('stash');
@@ -502,13 +503,14 @@
                   </button>
                 </div>
               {:else}
-                <div
-                  class="b-badge"
-                  style="background-color: {badgeColor};"
-                  title={domain}
-                >
+                <FaviconBadge
+                  url={item.url}
+                  title={item.title}
+                  {domain}
                   {initial}
-                </div>
+                  {badgeColor}
+                  size="popup"
+                />
                 <div
                   class="b-info"
                   onclick={() => handleOpenBookmark(item)}
