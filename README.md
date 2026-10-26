@@ -17,12 +17,13 @@ By leveraging native browser bookmarks, your stashed sessions and organized book
 - **⚡ Instant Stashing**: Stash current tab or current window with a single click into **Bookmarks Bar > makTabs**, placing newer sessions at the top by default.
 - **🌐 Website Favicons & Fallback Monograms**: Crisp website favicons loaded directly from local browser cache without external trackers, paired with pastel monogram fallbacks.
 - **💤 Memory Saver Mode (Lazy Tab Restore)**: Spawn dozens or hundreds of restored tabs without RAM lag, CPU throttling, or network overload. Background tabs are opened in a paused, ultra-lightweight state with the website's logo and title, and automatically wake up and navigate to the real URL the instant you switch to or focus on them.
-- **🌲 Interactive Bookmarks Tree & Organizer**: Visualize your entire bookmarks hierarchy as an interactive tree, list, or responsive grid.
+- **🌲 Interactive Bookmarks Tree & Organizer**: Visualize your entire bookmarks hierarchy with full multi-level recursive folder traversal (subfolders, sub-subfolders, etc.), expandable/collapsible chevrons, and instant folder switching in list, grid, or tree views.
+- **⚡ Dedicated makTabs Tree Navigation**: Quick-access makTabs section in the manager sidebar with real-time item counts and deep session hierarchy traversal.
 - **↕️ Drag & Drop Reordering & Nesting**:
   - Reorder bookmarks within folders or move items between folders.
-  - Move entire folders around, nest subfolders, or drop items directly onto sidebar folders.
+  - Move entire folders around, nest subfolders, or drop items directly onto sidebar folders at any depth.
   - Built-in circular hierarchy protection prevents accidental nesting loops.
-- **🖥️ Dedicated Full-Page Manager**: Spacious, standalone dashboard (`manager.html`) with expandable folder navigation, batch actions, and quick actions.
+- **🖥️ Dedicated Full-Page Manager**: Spacious, standalone dashboard (`manager.html`) with recursive sidebar folder navigation, batch actions, and 1-click session restoration.
 - **📑 In-Popup Bookmarks View**: Quick visual bookmark browser and organizer built directly into the extension popup.
 - **🔍 Instant Search & Filtering**: Real-time search across all bookmark titles and URLs with instant tree highlighting.
 - **☁️ Native & Self-Hosted Cloud Sync**: Stored directly in native browser bookmark trees, synchronizing across all your devices automatically.
@@ -141,7 +142,8 @@ maktabs/
 │   │   │   └── main.ts         # Snooze mount script
 │   │   ├── manager/            # Full-page Bookmarks Manager & Organizer
 │   │   │   ├── App.svelte      # Manager application view (Tree / List / Grid)
-│   │   │   ├── BookmarkTreeNode.svelte # Recursive drag-and-drop tree node component
+│   │   │   ├── BookmarkTreeNode.svelte # Recursive main pane tree node component
+│   │   │   ├── SidebarTreeNode.svelte  # Recursive sidebar folder tree component
 │   │   │   ├── index.html      # Manager page HTML
 │   │   │   ├── main.ts         # Manager mount script
 │   │   │   └── manager.css     # Modern light/dark theme styles

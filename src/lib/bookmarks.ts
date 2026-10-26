@@ -293,7 +293,7 @@ export async function getAllFoldersTree(): Promise<FolderNode[]> {
         parentId: node.parentId,
         childrenCount: totalChildren,
         subfolders,
-        isMakTabsRoot: node.title === MAKTABS_FOLDER_NAME,
+        isMakTabsRoot: (node.title || '').toLowerCase() === MAKTABS_FOLDER_NAME.toLowerCase(),
       };
     }
 
@@ -307,6 +307,21 @@ export async function getAllFoldersTree(): Promise<FolderNode[]> {
     console.warn('Failed to load bookmark folder tree:', err);
     return [];
   }
+}
+
+/**
+ * Recursively searches for a folder node in a tree matching a predicate.
+ */
+export function findFolderInTree(
+  folders: FolderNode[],
+  predicate: (f: FolderNode) => boolean
+): FolderNode | null {
+  for (const f of folders) {
+    if (predicate(f)) return f;
+    const sub = findFolderInTree(f.subfolders, predicate);
+    if (sub) return sub;
+  }
+  return null;
 }
 
 /**

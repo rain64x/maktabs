@@ -187,6 +187,15 @@
     <!-- Actions Toolbar on Hover/Focus -->
     <div class="tree-actions">
       {#if isFolder}
+        <button
+          type="button"
+          class="tree-action-btn"
+          onclick={() => onOpenFolder(node.id)}
+          title="Open and view contents of this folder in main pane"
+        >
+          📂 Open
+        </button>
+
         <!-- Restore buttons if MakTabs session -->
         <button
           type="button"

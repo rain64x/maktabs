@@ -278,7 +278,7 @@ html, body {
 
 /* Sidebar */
 .manager-sidebar {
-  width: 260px;
+  width: 275px;
   background-color: var(--bg-sidebar);
   border-right: 1px solid var(--border-color);
   display: flex;
@@ -304,6 +304,33 @@ html, body {
   margin: 0;
 }
 
+.sidebar-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.sidebar-action-btn {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.78rem;
+  transition: all 0.15s ease;
+}
+
+.sidebar-action-btn:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-main);
+  border-color: var(--primary);
+}
+
 .sidebar-tree {
   flex: 1;
   overflow-y: auto;
@@ -313,11 +340,67 @@ html, body {
   gap: 0.15rem;
 }
 
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.sidebar-section + .sidebar-section {
+  margin-top: 0.85rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.sidebar-section-header {
+  padding: 0.25rem 0.5rem 0.35rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sidebar-section-title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.sidebar-section-badge {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--primary);
+  background-color: var(--primary-subtle);
+  padding: 0.08rem 0.4rem;
+  border-radius: 9999px;
+}
+
+.sidebar-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.sidebar-tree-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-subtree {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
 .tree-node {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.38rem 0.6rem;
+  gap: 0.35rem;
+  padding: 0.32rem 0.5rem;
   border-radius: var(--radius-sm);
   font-size: 0.82rem;
   color: var(--text-main);
@@ -340,6 +423,38 @@ html, body {
 .tree-node.drop-target-folder {
   outline: 2px dashed var(--primary);
   background-color: var(--primary-subtle);
+}
+
+.tree-chevron-btn {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  border-radius: 3px;
+  transition: transform 0.15s ease, color 0.15s ease;
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.tree-chevron-btn:hover {
+  background-color: rgba(128, 128, 128, 0.18);
+  color: var(--text-main);
+}
+
+.tree-chevron-btn.expanded {
+  transform: rotate(90deg);
+}
+
+.tree-chevron-spacer {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
 }
 
 .tree-chevron {

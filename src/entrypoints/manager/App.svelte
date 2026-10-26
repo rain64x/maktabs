@@ -5,6 +5,7 @@
     MAKTABS_FOLDER_NAME,
     getOrCreateMakTabsFolder,
     getAllFoldersTree,
+    findFolderInTree,
     getFullBookmarkTree,
     getFolderContents,
     isDescendant,
@@ -27,6 +28,7 @@
     type FolderNode,
   } from '@/lib/bookmarks';
   import BookmarkTreeNode from './BookmarkTreeNode.svelte';
+  import SidebarTreeNode from './SidebarTreeNode.svelte';
   import FaviconBadge from '@/lib/FaviconBadge.svelte';
   import './manager.css';
 
@@ -41,12 +43,32 @@
   let isLoading = $state(true);
   let memorySaver = $state(true);
 
+  let makTabsFolder = $derived(
+    findFolderInTree(
+      folderTree,
+      (f) => f.isMakTabsRoot || f.title.toLowerCase() === MAKTABS_FOLDER_NAME.toLowerCase()
+    )
+  );
+
   // Search & Filter State
   let searchQuery = $state('');
   let isGlobalSearch = $state(false);
   let searchResults = $state<BookmarkItem[]>([]);
   let sortOption = $state<'manual' | 'name-asc' | 'name-desc' | 'date-desc' | 'date-asc'>('manual');
-  let viewMode = $state<'tree' | 'list' | 'grid'>('tree');
+  let viewMode = $state<'list' | 'grid' | 'tree'>(
+    (typeof localStorage !== 'undefined' &&
+      (localStorage.getItem('maktabs_manager_view') as 'list' | 'grid' | 'tree')) ||
+      'list'
+  );
+
+  function setViewMode(mode: 'list' | 'grid' | 'tree') {
+    viewMode = mode;
+    try {
+      localStorage.setItem('maktabs_manager_view', mode);
+    } catch {
+      // ignore
+    }
+  }
 
   // Drag and Drop State
   let draggedItem = $state<BookmarkItem | null>(null);
@@ -83,9 +105,27 @@
     }, 4000);
   }
 
-  // Filtered Tree (when searching in Tree view)
+  // Filtered Tree (when in Tree view)
   let displayedTree = $derived.by(() => {
-    if (!searchQuery.trim()) return fullTree;
+    let sourceNodes = fullTree;
+    if (currentFolderId) {
+      function findNode(nodes: BookmarkItem[], id: string): BookmarkItem | null {
+        for (const n of nodes) {
+          if (n.id === id) return n;
+          if (n.children) {
+            const f = findNode(n.children, id);
+            if (f) return f;
+          }
+        }
+        return null;
+      }
+      const current = findNode(fullTree, currentFolderId);
+      if (current) {
+        sourceNodes = [current];
+      }
+    }
+
+    if (!searchQuery.trim()) return sourceNodes;
     const q = searchQuery.toLowerCase().trim();
 
     function filterNode(node: BookmarkItem): BookmarkItem | null {
@@ -109,7 +149,7 @@
       return matchesTitle || matchesUrl ? node : null;
     }
 
-    return fullTree.map(filterNode).filter((n): n is BookmarkItem => n !== null);
+    return sourceNodes.map(filterNode).filter((n): n is BookmarkItem => n !== null);
   });
 
   // Derived Display List for List/Grid view
@@ -234,6 +274,9 @@
 
       breadcrumbs = crumbs;
       currentFolderName = folderName || crumbs[crumbs.length - 1]?.title || 'Folder';
+      for (const crumb of crumbs) {
+        expandedFolderIds.add(crumb.id);
+      }
       expandedFolderIds.add(folderId);
       expandedFolderIds = new Set(expandedFolderIds);
       await reloadFolder();
@@ -820,71 +863,95 @@
     <!-- Folder Tree Sidebar -->
     <aside class="manager-sidebar" aria-label="Bookmark Folders">
       <div class="sidebar-header">
-        <span class="sidebar-title">Folders</span>
-        <button
-          type="button"
-          class="btn-icon-only"
-          onclick={loadTrees}
-          title="Refresh folders"
-          aria-label="Refresh folders"
-        >
-          🔄
-        </button>
+        <span class="sidebar-title">Bookmarks Tree</span>
+        <div class="sidebar-header-actions">
+          <button
+            type="button"
+            class="sidebar-action-btn"
+            onclick={expandAll}
+            title="Expand all folders"
+            aria-label="Expand all folders"
+          >
+            ⊞
+          </button>
+          <button
+            type="button"
+            class="sidebar-action-btn"
+            onclick={collapseAll}
+            title="Collapse all folders"
+            aria-label="Collapse all folders"
+          >
+            ⊟
+          </button>
+          <button
+            type="button"
+            class="sidebar-action-btn"
+            onclick={loadTrees}
+            title="Refresh folders"
+            aria-label="Refresh folders"
+          >
+            🔄
+          </button>
+        </div>
       </div>
 
-      <nav class="sidebar-tree">
-        {#each folderTree as rootFolder (rootFolder.id)}
-          {@const rootItem: BookmarkItem = { id: rootFolder.id, title: rootFolder.title }}
-          <div
-            class="tree-node {currentFolderId === rootFolder.id ? 'active' : ''} {sidebarDragOverFolderId === rootFolder.id ? 'drop-target-folder' : ''}"
-            draggable="true"
-            ondragstart={(e) => handleDragStart(e, rootItem)}
-            ondragend={handleDragEnd}
-            onclick={() => navigateToFolder(rootFolder.id, rootFolder.title)}
-            onkeydown={(e) => e.key === 'Enter' && navigateToFolder(rootFolder.id, rootFolder.title)}
-            ondragover={(e) => handleSidebarDragOver(e, rootFolder)}
-            ondragleave={() => handleSidebarDragLeave(rootFolder)}
-            ondrop={(e) => handleSidebarDrop(e, rootFolder)}
-            role="button"
-            tabindex="0"
-            title="Folder: {rootFolder.title} (drag to move into another folder)"
-          >
-            <span class="tree-icon">{rootFolder.isMakTabsRoot ? '⚡' : '📁'}</span>
-            <span class="tree-label">{rootFolder.title}</span>
-            {#if rootFolder.childrenCount !== undefined && rootFolder.childrenCount > 0}
-              <span class="tree-count">{rootFolder.childrenCount}</span>
+      <nav class="sidebar-tree" aria-label="Folder Navigation">
+        <!-- ⚡ makTabs Section -->
+        <div class="sidebar-section">
+          <div class="sidebar-section-header">
+            <span class="sidebar-section-title">⚡ makTabs</span>
+            {#if makTabsFolder}
+              <span class="sidebar-section-badge" title="Total saved items in makTabs">
+                {makTabsFolder.childrenCount ?? 0}
+              </span>
             {/if}
           </div>
 
-          <!-- Direct Subfolders in Sidebar -->
-          {#if rootFolder.subfolders.length > 0}
-            <div style="padding-left: 0.9rem; display: flex; flex-direction: column; gap: 0.15rem;">
-              {#each rootFolder.subfolders as sub (sub.id)}
-                {@const subItem: BookmarkItem = { id: sub.id, title: sub.title }}
-                <div
-                  class="tree-node {currentFolderId === sub.id ? 'active' : ''} {sidebarDragOverFolderId === sub.id ? 'drop-target-folder' : ''}"
-                  draggable="true"
-                  ondragstart={(e) => handleDragStart(e, subItem)}
-                  ondragend={handleDragEnd}
-                  onclick={() => navigateToFolder(sub.id, sub.title)}
-                  onkeydown={(e) => e.key === 'Enter' && navigateToFolder(sub.id, sub.title)}
-                  ondragover={(e) => handleSidebarDragOver(e, sub)}
-                  ondragleave={() => handleSidebarDragLeave(sub)}
-                  ondrop={(e) => handleSidebarDrop(e, sub)}
-                  role="button"
-                  tabindex="0"
-                  title="Folder: {sub.title} (drag to move into another folder)"
-                >
-                  <span class="tree-icon">📂</span>
-                  <span class="tree-label">{sub.title}</span>
-                  {#if sub.childrenCount !== undefined && sub.childrenCount > 0}
-                    <span class="tree-count">{sub.childrenCount}</span>
-                  {/if}
-                </div>
-              {/each}
+          {#if makTabsFolder}
+            <div class="sidebar-section-body" role="tree" aria-label="makTabs tree">
+              <SidebarTreeNode
+                node={makTabsFolder}
+                depth={0}
+                {currentFolderId}
+                {expandedFolderIds}
+                {sidebarDragOverFolderId}
+                onSelectFolder={navigateToFolder}
+                onToggleExpand={toggleExpand}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
+                onDragOver={handleSidebarDragOver}
+                onDragLeave={handleSidebarDragLeave}
+                onDrop={handleSidebarDrop}
+              />
             </div>
           {/if}
-        {/each}
+        </div>
+
+        <!-- 📁 All Bookmarks Section -->
+        <div class="sidebar-section">
+          <div class="sidebar-section-header">
+            <span class="sidebar-section-title">📁 All Bookmarks</span>
+          </div>
+
+          <div class="sidebar-section-body" role="tree" aria-label="All bookmarks tree">
+            {#each folderTree as rootFolder (rootFolder.id)}
+              <SidebarTreeNode
+                node={rootFolder}
+                depth={0}
+                {currentFolderId}
+                {expandedFolderIds}
+                {sidebarDragOverFolderId}
+                onSelectFolder={navigateToFolder}
+                onToggleExpand={toggleExpand}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
+                onDragOver={handleSidebarDragOver}
+                onDragLeave={handleSidebarDragLeave}
+                onDrop={handleSidebarDrop}
+              />
+            {/each}
+          </div>
+        </div>
       </nav>
     </aside>
 
@@ -893,25 +960,7 @@
       <!-- Toolbar & Breadcrumb Bar -->
       <div class="content-toolbar">
         <div class="breadcrumbs" aria-label="Breadcrumb">
-          {#if viewMode === 'tree'}
-            <span class="crumb-item current">Bookmarks Tree View</span>
-            <button
-              type="button"
-              class="tree-expand-all-btn"
-              onclick={expandAll}
-              title="Expand all folders"
-            >
-              Expand All
-            </button>
-            <button
-              type="button"
-              class="tree-expand-all-btn"
-              onclick={collapseAll}
-              title="Collapse all folders"
-            >
-              Collapse All
-            </button>
-          {:else if isGlobalSearch}
+          {#if isGlobalSearch}
             <span class="crumb-item current">Search Results for "{searchQuery}" ({displayedItems.length})</span>
           {:else}
             {#each breadcrumbs as crumb, idx (crumb.id)}
@@ -934,6 +983,25 @@
             <span style="color: var(--text-muted); font-size: 0.78rem; margin-left: 0.4rem;">
               ({bookmarkItemCount} tabs, {folderItemCount} folders)
             </span>
+            {#if viewMode === 'tree'}
+              <button
+                type="button"
+                class="tree-expand-all-btn"
+                onclick={expandAll}
+                title="Expand all folders"
+                style="margin-left: 0.5rem;"
+              >
+                Expand All
+              </button>
+              <button
+                type="button"
+                class="tree-expand-all-btn"
+                onclick={collapseAll}
+                title="Collapse all folders"
+              >
+                Collapse All
+              </button>
+            {/if}
           {/if}
         </div>
 
@@ -969,20 +1037,12 @@
             </select>
           {/if}
 
-          <!-- View Mode Toggle: Tree, List, Grid -->
+          <!-- View Mode Toggle: List, Grid, Tree -->
           <div class="view-toggle" role="group" aria-label="View layout mode">
             <button
               type="button"
-              class="view-btn {viewMode === 'tree' ? 'active' : ''}"
-              onclick={() => (viewMode = 'tree')}
-              title="Hierarchical Tree view (drag folders & items)"
-            >
-              🌲 Tree
-            </button>
-            <button
-              type="button"
               class="view-btn {viewMode === 'list' ? 'active' : ''}"
-              onclick={() => (viewMode = 'list')}
+              onclick={() => setViewMode('list')}
               title="List view"
             >
               ☰ List
@@ -990,10 +1050,18 @@
             <button
               type="button"
               class="view-btn {viewMode === 'grid' ? 'active' : ''}"
-              onclick={() => (viewMode = 'grid')}
+              onclick={() => setViewMode('grid')}
               title="Grid view"
             >
               ⊞ Grid
+            </button>
+            <button
+              type="button"
+              class="view-btn {viewMode === 'tree' ? 'active' : ''}"
+              onclick={() => setViewMode('tree')}
+              title="Hierarchical Tree view (drag folders & items)"
+            >
+              🌲 Tree
             </button>
           </div>
         </div>
