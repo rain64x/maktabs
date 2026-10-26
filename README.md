@@ -4,7 +4,7 @@
 
 # MakTabs
 
-> **Stash open tabs into native browser bookmarks and organize bookmarks with an interactive drag-and-drop tree manager — with automatic cloud sync, zero data lock-in, and OneTab migration.**
+> **Stash open tabs into native browser bookmarks and organize bookmarks with an interactive drag-and-drop tree manager — with automatic cloud sync and zero data lock-in.**
 
 MakTabs is an open-source, privacy-first browser extension and native bookmark manager inspired by OneTab. Instead of saving tabs into volatile local storage or a proprietary database, MakTabs stashes them directly into native browser bookmark folders under **Bookmarks Bar > makTabs** by default for instant 1-click access right from your browser toolbar.
 
@@ -27,7 +27,6 @@ By leveraging native browser bookmarks, your stashed sessions and organized book
 - **📑 In-Popup Bookmarks View**: Quick visual bookmark browser and organizer built directly into the extension popup.
 - **🔍 Instant Search & Filtering**: Real-time search across all bookmark titles and URLs with instant tree highlighting.
 - **☁️ Native & Self-Hosted Cloud Sync**: Stored directly in native browser bookmark trees, synchronizing across all your devices automatically.
-- **📥 OneTab Importer**: Effortlessly migrate existing OneTab export lists (`URL | Title`) into organized, timestamped bookmark sessions.
 - **🛡️ Data Safety & URL Filtering**: Automatically skips non-bookmarkable internal browser tabs (such as `chrome://`, `edge://`, `about:`, and `devtools://`).
 - **📌 Pinned Tab Protection**: Pinned tabs are automatically preserved and never stashed or closed.
 - **🚀 Flexible Session Restoration**: Restore individual tabs or entire sessions in the current window or a new window, with options to keep or delete the session folder after restoring.
