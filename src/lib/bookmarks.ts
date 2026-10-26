@@ -51,29 +51,15 @@ export async function getBookmarksBarFolderId(): Promise<string | undefined> {
 /**
  * Finds or creates the root 'makTabs' bookmark folder.
  * Defaults to Bookmarks Bar ("Bookmarks bar" / "toolbar_____") for 1-click access.
- * Automatically migrates existing folders from "Other Bookmarks" if previously created there.
  */
 export async function getOrCreateMakTabsFolder(): Promise<string> {
-  const bookmarksBarId = await getBookmarksBarFolderId();
-
   const matches = await browser.bookmarks.search({ title: MAKTABS_FOLDER_NAME });
   const existingFolder = matches.find((item) => !item.url);
   if (existingFolder?.id) {
-    // If the folder was previously placed under Other Bookmarks ('2' / 'unfiled_____'),
-    // migrate it to the Bookmarks Bar for immediate native visibility
-    if (
-      bookmarksBarId &&
-      (existingFolder.parentId === '2' || existingFolder.parentId === 'unfiled_____')
-    ) {
-      try {
-        await browser.bookmarks.move(existingFolder.id, { parentId: bookmarksBarId });
-      } catch (moveErr) {
-        console.warn('Could not migrate makTabs folder to Bookmarks Bar:', moveErr);
-      }
-    }
     return existingFolder.id;
   }
 
+  const bookmarksBarId = await getBookmarksBarFolderId();
   const created = await browser.bookmarks.create({
     parentId: bookmarksBarId,
     title: MAKTABS_FOLDER_NAME,
