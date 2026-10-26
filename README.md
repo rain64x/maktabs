@@ -14,7 +14,7 @@ By leveraging native browser bookmarks, your stashed sessions and organized book
 
 ## ✨ Features
 
-- **⚡ Interactive Breadcrumb Path Builder & Subfolder Creator**: Stash tabs using a unified breadcrumb path (`makTabs › music › flute › [Session Name]`), create new subfolders on the fly right inside the modal, choose between wrapping tabs in a subfolder or direct folder saving, navigate parent folders with 1 click, and access recent destinations instantly.
+- **⚡ Interactive Breadcrumb Path Builder & Subfolder Creator**: Stash tabs directly into **makTabs** with 1 click, or expand the inline path builder on the main page to customize the destination path (`makTabs › music › flute › [Session Name]`), create new subfolders on the fly, toggle between subfolder wrapping or direct folder saving, and access recent destinations instantly.
 - **🌐 Website Favicons & Fallback Monograms**: Crisp website favicons loaded directly from local browser cache without external trackers, paired with pastel monogram fallbacks.
 - **💤 Memory Saver Mode (Lazy Tab Restore)**: Spawn dozens or hundreds of restored tabs without RAM lag, CPU throttling, or network overload. Background tabs are opened in a paused, ultra-lightweight state with the website's logo and title, and automatically wake up and navigate to the real URL the instant you switch to or focus on them.
 - **🌲 Interactive Bookmarks Tree & Organizer**: Visualize your entire bookmarks hierarchy with full multi-level recursive folder traversal (subfolders, sub-subfolders, etc.), expandable/collapsible chevrons, and instant folder switching in list, grid, or tree views.

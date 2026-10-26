@@ -51,35 +51,54 @@
       : isCurrentValid
   );
 
-  // Destination Picker Modal State
-  let isDestinationModalOpen = $state(false);
-  let pendingCloseAfter = $state(false);
+  // Destination Path & Folder State
+  let isPathExpanded = $state(false);
   let destinationNameInput = $state('');
   let selectedFolderId = $state('');
   let folderSearchQuery = $state('');
   let destinationFolders = $state<DestinationFolderOption[]>([]);
   let recentFolderIds = $state<string[]>([]);
   let isFoldersLoading = $state(false);
-  let createSubfolder = $state(true);
   let isCreatingSubfolder = $state(false);
   let newSubfolderName = $state('');
 
-  let recentFolders = $derived.by(() => {
-    if (recentFolderIds.length === 0 || destinationFolders.length === 0) return [];
-    const map = new Map(destinationFolders.map((f) => [f.id, f]));
-    return recentFolderIds
-      .map((id) => map.get(id))
-      .filter((f): f is DestinationFolderOption => f !== undefined);
-  });
+  // Subfolder mode is automatically active whenever a subfolder name is entered
+  let isSubfolderActive = $derived(destinationNameInput.trim().length > 0);
+
+  let recentIdSet = $derived(new Set(recentFolderIds));
 
   let filteredDestinationFolders = $derived.by(() => {
     const q = folderSearchQuery.trim().toLowerCase();
-    if (!q) return destinationFolders;
-    return destinationFolders.filter(
-      (f) =>
-        f.title.toLowerCase().includes(q) ||
-        f.path.toLowerCase().includes(q)
-    );
+    if (q) {
+      return destinationFolders.filter(
+        (f) =>
+          f.title.toLowerCase().includes(q) ||
+          f.path.toLowerCase().includes(q)
+      );
+    }
+
+    // When not searching, order list with:
+    // 1. makTabs root first
+    // 2. Recent folders (up to 4, excluding makTabs root)
+    // 3. All remaining folders
+    const makTabsRoot = destinationFolders.find((f) => f.isMakTabsRoot);
+
+    const recents = recentFolderIds
+      .map((id) => destinationFolders.find((f) => f.id === id))
+      .filter((f): f is DestinationFolderOption => f !== undefined && !f.isMakTabsRoot)
+      .slice(0, 4);
+
+    const shownIds = new Set<string>();
+    if (makTabsRoot) shownIds.add(makTabsRoot.id);
+    recents.forEach((r) => shownIds.add(r.id));
+
+    const remaining = destinationFolders.filter((f) => !shownIds.has(f.id));
+
+    return [
+      ...(makTabsRoot ? [makTabsRoot] : []),
+      ...recents,
+      ...remaining,
+    ];
   });
 
   let selectedFolder = $derived(
@@ -143,9 +162,32 @@
     }
   }
 
+  async function initDestinationFolders() {
+    isFoldersLoading = true;
+    try {
+      const [folders, recents, makTabsId] = await Promise.all([
+        getDestinationFolders(),
+        getRecentDestinationIds(),
+        getOrCreateMakTabsFolder(),
+      ]);
+      destinationFolders = folders;
+      recentFolderIds = recents;
+      rootMakTabsId = makTabsId;
+
+      // Always default directly to makTabs, never remember previous folder
+      const makTabsRoot = folders.find((f) => f.isMakTabsRoot);
+      selectedFolderId = makTabsRoot?.id || makTabsId;
+    } catch (err) {
+      console.error('Failed to init destination folders:', err);
+    } finally {
+      isFoldersLoading = false;
+    }
+  }
+
   onMount(async () => {
     await refreshTabInfo();
     memorySaver = await getMemorySaverPreference();
+    await initDestinationFolders();
     try {
       const stored = await browser.storage.local.get(['maktabs_target', 'maktabs_popup_tab']);
       if (stored.maktabs_target === 'window' || stored.maktabs_target === 'this') {
@@ -175,47 +217,8 @@
     browser.storage.local.set({ maktabs_target: newTarget }).catch(() => {});
   }
 
-  async function openDestinationModal(closeAfter: boolean) {
-    if (isProcessing || !canExecute) return;
-    pendingCloseAfter = closeAfter;
-    folderSearchQuery = '';
-    isCreatingSubfolder = false;
-    newSubfolderName = '';
-
-    // Default createSubfolder: true for window, false for single tab
-    createSubfolder = target === 'window';
-
-    // Prefill default name
-    if (target === 'window') {
-      destinationNameInput = getDefaultSessionTitle(totalValidTabs || 1);
-    } else {
-      destinationNameInput = currentTabTitle || 'Tab Bookmark';
-    }
-
-    isDestinationModalOpen = true;
-    isFoldersLoading = true;
-
-    try {
-      const [folders, recents] = await Promise.all([
-        getDestinationFolders(),
-        getRecentDestinationIds(),
-      ]);
-      destinationFolders = folders;
-      recentFolderIds = recents;
-
-      // Select first recent if it exists in current folders, else makTabs root
-      const firstRecent = recents[0];
-      if (firstRecent && folders.some((f) => f.id === firstRecent)) {
-        selectedFolderId = firstRecent;
-      } else {
-        const makTabsRoot = folders.find((f) => f.isMakTabsRoot);
-        selectedFolderId = makTabsRoot?.id || folders[0]?.id || '';
-      }
-    } catch (err) {
-      console.error('Failed to load destination folders:', err);
-    } finally {
-      isFoldersLoading = false;
-    }
+  function togglePathExpanded() {
+    isPathExpanded = !isPathExpanded;
   }
 
   function selectDestinationFolder(folderId: string) {
@@ -223,14 +226,10 @@
     isCreatingSubfolder = false;
   }
 
-  function cancelDestinationModal() {
-    isDestinationModalOpen = false;
-    isCreatingSubfolder = false;
-  }
-
   function toggleCreateSubfolder() {
-    createSubfolder = !createSubfolder;
-    if (createSubfolder && !destinationNameInput.trim()) {
+    if (isSubfolderActive) {
+      destinationNameInput = '';
+    } else {
       destinationNameInput =
         target === 'window'
           ? getDefaultSessionTitle(totalValidTabs || 1)
@@ -252,34 +251,28 @@
     }
   }
 
-  function handleModalKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape') {
-      cancelDestinationModal();
-    }
-  }
-
-  async function confirmStash() {
-    if (isProcessing || !canExecute || !selectedFolderId) return;
+  async function executeStash(closeAfter: boolean) {
+    if (isProcessing || !canExecute) return;
     isProcessing = true;
     status = { type: 'idle', message: '' };
 
-    const closeAfter = pendingCloseAfter;
-    const targetFolderId = selectedFolderId;
+    const targetFolderId = selectedFolderId || rootMakTabsId;
     const customTitle = destinationNameInput.trim();
-    const willCreateSubfolder = createSubfolder && customTitle.length > 0;
-
-    isDestinationModalOpen = false;
+    const willCreateSubfolder = customTitle.length > 0;
 
     try {
       const res =
         target === 'window'
           ? await stashAllTabs(closeAfter, targetFolderId, customTitle, willCreateSubfolder)
-          : await stashCurrentTab(closeAfter, targetFolderId, customTitle);
+          : await stashCurrentTab(closeAfter, targetFolderId, customTitle, willCreateSubfolder);
 
       status = {
         type: res.success ? 'success' : 'warning',
         message: res.message,
       };
+      if (res.success) {
+        isPathExpanded = false;
+      }
       await refreshTabInfo();
       if (currentFolderId) {
         await loadPopupBookmarks(currentFolderId);
@@ -416,45 +409,44 @@
   }
 </script>
 
-<main class="container {isDestinationModalOpen ? 'modal-active' : ''}">
-  <!-- Header with Brand and Full Manager Shortcut -->
+<main class="container">
+  <!-- Unified Compact Header -->
   <header>
-    <div class="header-top">
-      <div class="logo-row">
-        <img src="/logo.svg" alt="MakTabs logo" class="logo-img" width="24" height="24" />
-        <h1 class="logo-title">MakTabs</h1>
+    <div class="header-left">
+      <img src="/logo.svg" alt="MakTabs logo" class="logo-img" width="20" height="20" />
+      <h1 class="logo-title">MakTabs</h1>
+    </div>
+
+    <div class="header-right">
+      <div class="tab-switcher" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'stash'}
+          class="tab-btn {activeTab === 'stash' ? 'active' : ''}"
+          onclick={() => selectTab('stash')}
+        >
+          ⚡ Stash
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'bookmarks'}
+          class="tab-btn {activeTab === 'bookmarks' ? 'active' : ''}"
+          onclick={() => selectTab('bookmarks')}
+        >
+          📑 Bookmarks
+        </button>
       </div>
 
       <button
         type="button"
-        class="btn-manager-link"
+        class="btn-manager-icon"
         onclick={openFullManager}
         title="Open full Bookmarks Manager in new tab"
+        aria-label="Open Bookmarks Manager"
       >
-        <span>Manager</span>
-        <span class="icon-external">↗</span>
-      </button>
-    </div>
-
-    <!-- Navigation Tabs: Stash vs Bookmarks -->
-    <div class="tab-switcher" role="tablist">
-      <button
-        type="button"
-        role="tab"
-        aria-selected={activeTab === 'stash'}
-        class="tab-btn {activeTab === 'stash' ? 'active' : ''}"
-        onclick={() => selectTab('stash')}
-      >
-        ⚡ Stash
-      </button>
-      <button
-        type="button"
-        role="tab"
-        aria-selected={activeTab === 'bookmarks'}
-        class="tab-btn {activeTab === 'bookmarks' ? 'active' : ''}"
-        onclick={() => selectTab('bookmarks')}
-      >
-        📑 Bookmarks
+        ↗
       </button>
     </div>
   </header>
@@ -464,7 +456,7 @@
     <div class="panel">
       <!-- Row 1: Target Segmented Pill -->
       <div class="control-row">
-        <span class="label">Target:</span>
+        <span class="label">Scope:</span>
         <div class="segmented-pill" role="radiogroup" aria-label="Target tabs selection">
           <button
             type="button"
@@ -499,33 +491,255 @@
         </div>
       {/if}
 
-      <!-- Row 2: Action Buttons -->
-      <div class="control-row">
-        <span class="label">Action:</span>
-        <div class="btn-group">
+      <!-- Row 2: Target Path Preview & Expandable Selector -->
+      <div class="path-section {isPathExpanded ? 'expanded' : ''}">
+        <div class="path-summary-bar">
+          <div
+            class="path-summary-info"
+            onclick={togglePathExpanded}
+            role="button"
+            tabindex="0"
+            onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && togglePathExpanded()}
+            title="Click to customize destination folder or subfolder"
+          >
+            <span class="path-summary-label">Save to:</span>
+            <div class="path-summary-pill">
+              <span class="path-pill-icon">{selectedFolder?.isMakTabsRoot ? '⚡' : '📁'}</span>
+              <span class="path-pill-title" title={selectedFolder?.path || 'makTabs'}>
+                {selectedFolder?.path || selectedFolder?.title || 'makTabs'}
+                {#if isSubfolderActive}
+                  <span class="path-subfolder-crumb">› {destinationNameInput.trim()}</span>
+                {/if}
+              </span>
+              <span class="path-mode-badge {isSubfolderActive ? 'badge-subfolder' : 'badge-direct'}">
+                {isSubfolderActive ? '📁 subfolder' : '⚡ direct'}
+              </span>
+            </div>
+          </div>
+
           <button
             type="button"
-            class="btn-sm btn-action btn-close"
-            onclick={() => openDestinationModal(true)}
-            disabled={isProcessing || !canExecute}
-            title={target === 'this' && isCurrentPinned
-              ? 'Pinned tabs are protected'
-              : 'Choose destination folder to save target tab(s) and close them'}
+            class="btn-path-toggle {isPathExpanded ? 'active' : ''}"
+            onclick={togglePathExpanded}
+            title={isPathExpanded ? 'Collapse options' : 'Change destination'}
+            aria-expanded={isPathExpanded}
           >
-            Save and Close
-          </button>
-          <button
-            type="button"
-            class="btn-sm btn-action btn-save"
-            onclick={() => openDestinationModal(false)}
-            disabled={isProcessing || !canExecute}
-            title={target === 'this' && isCurrentPinned
-              ? 'Pinned tabs are protected'
-              : 'Choose destination folder to save target tab(s) without closing'}
-          >
-            Save only
+            <span>{isPathExpanded ? 'Done' : 'Change'}</span>
+            <span class="toggle-icon">{isPathExpanded ? '▴' : '▾'}</span>
           </button>
         </div>
+
+        <!-- Expanded Extra Options -->
+        {#if isPathExpanded}
+          <div class="path-expanded-card">
+            <!-- Interactive Breadcrumb Path Builder -->
+            <div class="path-builder-card">
+              <div class="path-header-row">
+                <span class="path-title-label">Path Builder:</span>
+                <button
+                  type="button"
+                  class="btn-subfolder-toggle {isSubfolderActive ? 'active' : ''}"
+                  onclick={toggleCreateSubfolder}
+                  title={isSubfolderActive ? "Click to save directly into selected folder without an extra subfolder" : "Click to wrap tabs in a subfolder"}
+                >
+                  {isSubfolderActive ? '📁 Subfolder' : '⚡ Direct save'}
+                </button>
+              </div>
+
+              <!-- Dynamic Path Chain -->
+              <div class="path-chain">
+                {#each activeBreadcrumbs as crumb, i}
+                  {@const isLastCrumb = i === activeBreadcrumbs.length - 1}
+                  <button
+                    type="button"
+                    class="path-pill {isLastCrumb ? 'active-target' : ''}"
+                    onclick={() => selectDestinationFolder(crumb.id)}
+                    title="Click to set destination to {crumb.title}"
+                  >
+                    <span class="pill-icon">{i === 0 ? '⚡' : '📁'}</span>
+                    <span class="pill-title">{crumb.title}</span>
+                  </button>
+                  <span class="path-chevron">›</span>
+                {/each}
+
+                <!-- Terminal Session Name Input -->
+                <div class="path-terminal-input-wrap">
+                  <input
+                    id="dest-name"
+                    type="text"
+                    class="path-terminal-input"
+                    bind:value={destinationNameInput}
+                    placeholder={selectedFolder ? `Direct in ${selectedFolder.title}` : 'Session Name'}
+                    title="Enter session subfolder name, or leave empty for direct save"
+                    onkeydown={(e) => {
+                      if (e.key === 'Enter') executeStash(false);
+                    }}
+                  />
+                  {#if destinationNameInput}
+                    <button
+                      type="button"
+                      class="btn-clear-terminal"
+                      onclick={() => (destinationNameInput = '')}
+                      title="Clear to save directly without a subfolder"
+                      aria-label="Clear subfolder name"
+                    >
+                      ✕
+                    </button>
+                  {/if}
+                </div>
+              </div>
+
+              <!-- Path Mode Description -->
+              <div class="path-feedback-caption">
+                {#if isSubfolderActive}
+                  <span class="feedback-text">
+                    📁 Will create subfolder <strong>"{destinationNameInput.trim()}"</strong> inside <strong>{selectedFolder?.path || selectedFolder?.title || 'makTabs'}</strong>
+                  </span>
+                {:else}
+                  <span class="feedback-text feedback-direct">
+                    ⚡ Tabs will be saved directly into <strong>{selectedFolder?.path || selectedFolder?.title || 'makTabs'}</strong>
+                  </span>
+                {/if}
+              </div>
+            </div>
+
+            <!-- Folders Search & List with + New Subfolder button -->
+            <div class="folder-section">
+              <div class="folder-header-row">
+                <span class="modal-subheading">
+                  {folderSearchQuery ? 'Matching Folders' : 'Select Destination Folder'}
+                </span>
+                <button
+                  type="button"
+                  class="btn-new-subfolder-toggle"
+                  onclick={() => {
+                    isCreatingSubfolder = !isCreatingSubfolder;
+                    if (isCreatingSubfolder) newSubfolderName = '';
+                  }}
+                  title="Create a new subfolder under {selectedFolder?.path || selectedFolder?.title || 'selected folder'}"
+                >
+                  {isCreatingSubfolder ? '✕ Cancel' : '+ New Subfolder'}
+                </button>
+              </div>
+
+              <!-- Inline New Subfolder Creator -->
+              {#if isCreatingSubfolder}
+                <div class="inline-create-box">
+                  <span class="create-box-label">
+                    New subfolder in <strong>{selectedFolder?.path || selectedFolder?.title || 'makTabs'}</strong>:
+                  </span>
+                  <div class="create-box-row">
+                    <input
+                      type="text"
+                      class="create-box-input"
+                      placeholder="Subfolder name (e.g. music, flute)..."
+                      bind:value={newSubfolderName}
+                      onkeydown={(e) => {
+                        if (e.key === 'Enter') handleCreateSubfolder();
+                        if (e.key === 'Escape') isCreatingSubfolder = false;
+                      }}
+                    />
+                    <button
+                      type="button"
+                      class="btn-create-submit"
+                      onclick={handleCreateSubfolder}
+                      disabled={!newSubfolderName.trim()}
+                    >
+                      Create
+                    </button>
+                  </div>
+                </div>
+              {/if}
+
+              <!-- Search input -->
+              <div class="search-box">
+                <span class="search-box-icon">🔍</span>
+                <input
+                  type="search"
+                  class="modal-input search-box-input"
+                  placeholder="Filter or search folders..."
+                  bind:value={folderSearchQuery}
+                />
+                {#if folderSearchQuery}
+                  <button
+                    type="button"
+                    class="search-clear-btn"
+                    onclick={() => (folderSearchQuery = '')}
+                    aria-label="Clear search"
+                  >
+                    ✕
+                  </button>
+                {/if}
+              </div>
+
+              <div class="folder-options-list" role="listbox">
+                {#if isFoldersLoading}
+                  <div class="folder-option-empty">Loading folders...</div>
+                {:else if filteredDestinationFolders.length === 0}
+                  <div class="folder-option-empty">
+                    {folderSearchQuery
+                      ? `No folders match "${folderSearchQuery}"`
+                      : 'No folders found'}
+                  </div>
+                {:else}
+                  {#each filteredDestinationFolders as folder (folder.id)}
+                    {@const isSelected = selectedFolderId === folder.id}
+                    {@const isRecent = !folderSearchQuery && recentIdSet.has(folder.id) && !folder.isMakTabsRoot}
+                    <div
+                      class="folder-option {isSelected ? 'selected' : ''} {folder.isUnderMakTabs ? 'under-maktabs' : ''}"
+                      role="option"
+                      aria-selected={isSelected}
+                      tabindex="0"
+                      onclick={() => selectDestinationFolder(folder.id)}
+                      onkeydown={(e) => {
+                        if (e.key === 'Enter') selectDestinationFolder(folder.id);
+                      }}
+                    >
+                      <span class="folder-option-icon">
+                        {folder.isMakTabsRoot ? '⚡' : '📁'}
+                      </span>
+                      <span class="folder-option-path" title={folder.path}>
+                        {folder.path}
+                      </span>
+                      {#if isRecent}
+                        <span class="folder-recent-badge" title="Recently used destination">recent</span>
+                      {/if}
+                      {#if isSelected}
+                        <span class="folder-option-check">✓</span>
+                      {/if}
+                    </div>
+                  {/each}
+                {/if}
+              </div>
+            </div>
+          </div>
+        {/if}
+      </div>
+
+      <!-- Row 3: Action Buttons -->
+      <div class="action-btn-group">
+        <button
+          type="button"
+          class="btn-sm btn-action btn-close"
+          onclick={() => executeStash(true)}
+          disabled={isProcessing || !canExecute}
+          title={target === 'this' && isCurrentPinned
+            ? 'Pinned tabs are protected'
+            : 'Save target tab(s) to destination and close them'}
+        >
+          {isProcessing ? 'Saving...' : 'Save and Close'}
+        </button>
+        <button
+          type="button"
+          class="btn-sm btn-action btn-save"
+          onclick={() => executeStash(false)}
+          disabled={isProcessing || !canExecute}
+          title={target === 'this' && isCurrentPinned
+            ? 'Pinned tabs are protected'
+            : 'Save target tab(s) to destination without closing'}
+        >
+          {isProcessing ? 'Saving...' : 'Save only'}
+        </button>
       </div>
     </div>
 
@@ -695,333 +909,77 @@
       </footer>
     </div>
   {/if}
-
-  <!-- Destination Picker Modal -->
-  {#if isDestinationModalOpen}
-    <div
-      class="modal-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="modal-title"
-      tabindex="-1"
-      onkeydown={handleModalKeydown}
-    >
-      <div class="modal-header">
-        <div class="modal-title-row">
-          <span class="modal-icon">📂</span>
-          <h2 id="modal-title" class="modal-title">
-            {pendingCloseAfter ? 'Save and Close' : 'Save Tabs'}
-          </h2>
-        </div>
-        <button
-          type="button"
-          class="btn-modal-close"
-          onclick={cancelDestinationModal}
-          title="Cancel and close"
-          aria-label="Close"
-        >
-          ✕
-        </button>
-      </div>
-
-      <div class="modal-body">
-        <!-- Interactive Breadcrumb Path Builder -->
-        <div class="path-builder-card">
-          <div class="path-header-row">
-            <span class="path-title-label">Target Path:</span>
-            <button
-              type="button"
-              class="btn-subfolder-toggle {createSubfolder && destinationNameInput.trim() ? 'active' : ''}"
-              onclick={toggleCreateSubfolder}
-              title={createSubfolder ? "Click to save directly into selected folder without an extra subfolder" : "Click to wrap tabs in a subfolder"}
-            >
-              {createSubfolder && destinationNameInput.trim() ? '📁 Subfolder' : '⚡ Direct save'}
-            </button>
-          </div>
-
-          <!-- Dynamic Path Chain -->
-          <div class="path-chain">
-            {#each activeBreadcrumbs as crumb, i}
-              {@const isLastCrumb = i === activeBreadcrumbs.length - 1}
-              <button
-                type="button"
-                class="path-pill {isLastCrumb ? 'active-target' : ''}"
-                onclick={() => selectDestinationFolder(crumb.id)}
-                title="Click to set destination to {crumb.title}"
-              >
-                <span class="pill-icon">{i === 0 ? '⚡' : '📁'}</span>
-                <span class="pill-title">{crumb.title}</span>
-              </button>
-              <span class="path-chevron">›</span>
-            {/each}
-
-            <!-- Terminal Session Name Input -->
-            <div class="path-terminal-input-wrap">
-              <input
-                id="dest-name"
-                type="text"
-                class="path-terminal-input"
-                bind:value={destinationNameInput}
-                placeholder={selectedFolder ? `Direct in ${selectedFolder.title}` : 'Session Name'}
-                title="Enter session subfolder name, or leave empty for direct save"
-                onkeydown={(e) => {
-                  if (e.key === 'Enter') confirmStash();
-                }}
-              />
-              {#if destinationNameInput}
-                <button
-                  type="button"
-                  class="btn-clear-terminal"
-                  onclick={() => (destinationNameInput = '')}
-                  title="Clear to save directly without a subfolder"
-                  aria-label="Clear subfolder name"
-                >
-                  ✕
-                </button>
-              {/if}
-            </div>
-          </div>
-
-          <!-- Path Mode Description -->
-          <div class="path-feedback-caption">
-            {#if createSubfolder && destinationNameInput.trim()}
-              <span class="feedback-text">
-                📁 Will create subfolder <strong>"{destinationNameInput.trim()}"</strong> inside <strong>{selectedFolder?.title || 'makTabs'}</strong>
-              </span>
-            {:else}
-              <span class="feedback-text feedback-direct">
-                ⚡ Tabs will be saved directly into <strong>{selectedFolder?.title || 'makTabs'}</strong>
-              </span>
-            {/if}
-          </div>
-        </div>
-
-        <!-- Destination Folder Search & List -->
-        <div class="modal-field modal-field-folder">
-          <!-- Search input -->
-          <div class="search-box">
-            <span class="search-box-icon">🔍</span>
-            <input
-              type="search"
-              class="modal-input search-box-input"
-              placeholder="Filter or search folders..."
-              bind:value={folderSearchQuery}
-            />
-            {#if folderSearchQuery}
-              <button
-                type="button"
-                class="search-clear-btn"
-                onclick={() => (folderSearchQuery = '')}
-                aria-label="Clear search"
-              >
-                ✕
-              </button>
-            {/if}
-          </div>
-
-          <!-- Recent folders section -->
-          {#if !folderSearchQuery && recentFolders.length > 0}
-            <div class="recent-section">
-              <span class="modal-subheading">Recent Folders</span>
-              <div class="recent-list">
-                {#each recentFolders as rf (rf.id)}
-                  <button
-                    type="button"
-                    class="recent-chip {selectedFolderId === rf.id ? 'active' : ''}"
-                    onclick={() => selectDestinationFolder(rf.id)}
-                    title={rf.path}
-                  >
-                    <span class="recent-icon">📁</span>
-                    <span class="recent-text">{rf.path}</span>
-                  </button>
-                {/each}
-              </div>
-            </div>
-          {/if}
-
-          <!-- Folders tree / list with + New Subfolder button -->
-          <div class="folder-section">
-            <div class="folder-header-row">
-              <span class="modal-subheading">
-                {folderSearchQuery ? 'Matching Folders' : 'Folders'}
-              </span>
-              <button
-                type="button"
-                class="btn-new-subfolder-toggle"
-                onclick={() => {
-                  isCreatingSubfolder = !isCreatingSubfolder;
-                  if (isCreatingSubfolder) newSubfolderName = '';
-                }}
-                title="Create a new subfolder under {selectedFolder?.title || 'selected folder'}"
-              >
-                {isCreatingSubfolder ? '✕ Cancel' : '+ New Subfolder'}
-              </button>
-            </div>
-
-            <!-- Inline New Subfolder Creator -->
-            {#if isCreatingSubfolder}
-              <div class="inline-create-box">
-                <span class="create-box-label">
-                  New subfolder in <strong>{selectedFolder?.title || 'makTabs'}</strong>:
-                </span>
-                <div class="create-box-row">
-                  <input
-                    type="text"
-                    class="create-box-input"
-                    placeholder="Subfolder name (e.g. music, flute)..."
-                    bind:value={newSubfolderName}
-                    onkeydown={(e) => {
-                      if (e.key === 'Enter') handleCreateSubfolder();
-                      if (e.key === 'Escape') isCreatingSubfolder = false;
-                    }}
-                  />
-                  <button
-                    type="button"
-                    class="btn-create-submit"
-                    onclick={handleCreateSubfolder}
-                    disabled={!newSubfolderName.trim()}
-                  >
-                    Create
-                  </button>
-                </div>
-              </div>
-            {/if}
-
-            <div class="folder-options-list" role="listbox">
-              {#if isFoldersLoading}
-                <div class="folder-option-empty">Loading folders...</div>
-              {:else if filteredDestinationFolders.length === 0}
-                <div class="folder-option-empty">
-                  {folderSearchQuery
-                    ? `No folders match "${folderSearchQuery}"`
-                    : 'No folders found'}
-                </div>
-              {:else}
-                {#each filteredDestinationFolders as folder (folder.id)}
-                  {@const isSelected = selectedFolderId === folder.id}
-                  <div
-                    class="folder-option {isSelected ? 'selected' : ''} {folder.isUnderMakTabs ? 'under-maktabs' : ''}"
-                    role="option"
-                    aria-selected={isSelected}
-                    tabindex="0"
-                    onclick={() => selectDestinationFolder(folder.id)}
-                    ondblclick={confirmStash}
-                    onkeydown={(e) => {
-                      if (e.key === 'Enter') selectDestinationFolder(folder.id);
-                    }}
-                  >
-                    <span class="folder-option-icon">
-                      {folder.isMakTabsRoot ? '⚡' : '📁'}
-                    </span>
-                    <span class="folder-option-path" title={folder.path}>
-                      {folder.path}
-                    </span>
-                    {#if isSelected}
-                      <span class="folder-option-check">✓</span>
-                    {/if}
-                  </div>
-                {/each}
-              {/if}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="modal-footer">
-        <button
-          type="button"
-          class="btn-modal-action btn-modal-cancel"
-          onclick={cancelDestinationModal}
-          disabled={isProcessing}
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          class="btn-modal-action {pendingCloseAfter ? 'btn-modal-close-save' : 'btn-modal-save'}"
-          onclick={confirmStash}
-          disabled={isProcessing || !selectedFolderId}
-        >
-          {#if isProcessing}
-            Saving...
-          {:else if pendingCloseAfter}
-            Save and Close
-          {:else}
-            Save only
-          {/if}
-        </button>
-      </div>
-    </div>
-  {/if}
 </main>
 
 <style>
   .container {
-    width: 340px;
-    padding: 0.85rem 0.9rem;
+    width: 390px;
+    padding: 0.65rem 0.75rem;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0.5rem;
     position: relative;
-    min-height: 240px;
-  }
-
-  .container.modal-active {
-    min-height: 470px;
+    max-height: 580px;
+    overflow-y: auto;
   }
 
   header {
     display: flex;
-    flex-direction: column;
-    gap: 0.55rem;
-  }
-
-  .header-top {
-    display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 0.5rem;
   }
 
-  .logo-row {
+  .header-left {
     display: flex;
     align-items: center;
-    gap: 0.45rem;
+    gap: 0.4rem;
   }
 
   .logo-img {
-    border-radius: 5px;
+    border-radius: 4px;
     display: block;
   }
 
   .logo-title {
-    font-size: 1.15rem;
+    font-size: 0.98rem;
     font-weight: 700;
     margin: 0;
     letter-spacing: -0.02em;
   }
 
-  .btn-manager-link {
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
+  .btn-manager-icon {
     display: inline-flex;
     align-items: center;
-    gap: 0.25rem;
-    padding: 0.25rem 0.5rem;
-    font-size: 0.74rem;
-    font-weight: 600;
-    border-radius: 9999px;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    font-size: 0.85rem;
+    font-weight: 700;
+    border-radius: 6px;
     border: 1px solid rgba(37, 99, 235, 0.3);
     background-color: rgba(37, 99, 235, 0.08);
     color: #2563eb;
     cursor: pointer;
     transition: all 0.15s ease;
+    flex-shrink: 0;
   }
 
-  .btn-manager-link:hover {
-    background-color: rgba(37, 99, 235, 0.16);
+  .btn-manager-icon:hover {
+    background-color: rgba(37, 99, 235, 0.18);
+    border-color: #2563eb;
   }
 
   @media (prefers-color-scheme: dark) {
-    .btn-manager-link {
+    .btn-manager-icon {
       color: #60a5fa;
       border-color: rgba(96, 165, 250, 0.35);
       background-color: rgba(96, 165, 250, 0.12);
@@ -1032,22 +990,22 @@
   .tab-switcher {
     display: flex;
     background-color: #e2e8f0;
-    border-radius: 8px;
-    padding: 2.5px;
+    border-radius: 6px;
+    padding: 2px;
   }
 
   .tab-btn {
-    flex: 1;
     border: none;
     background: transparent;
-    padding: 0.35rem 0.5rem;
-    font-size: 0.78rem;
+    padding: 0.22rem 0.5rem;
+    font-size: 0.73rem;
     font-weight: 600;
     color: #64748b;
-    border-radius: 6px;
+    border-radius: 4px;
     cursor: pointer;
     transition: all 0.15s ease;
     text-align: center;
+    white-space: nowrap;
   }
 
   .tab-btn.active {
@@ -1072,11 +1030,11 @@
   .panel {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0.5rem;
     background: rgba(128, 128, 128, 0.05);
     border: 1px solid rgba(128, 128, 128, 0.12);
     border-radius: 8px;
-    padding: 0.75rem 0.7rem;
+    padding: 0.55rem 0.65rem;
   }
 
   .pinned-notice {
@@ -1124,7 +1082,7 @@
     box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
     flex: 1;
     justify-content: flex-end;
-    max-width: 210px;
+    max-width: 240px;
   }
 
   .pill-segment {
@@ -1180,6 +1138,19 @@
     gap: 0.4rem;
     flex: 1;
     justify-content: flex-end;
+  }
+
+  .action-btn-group {
+    display: flex;
+    gap: 0.45rem;
+    width: 100%;
+    margin-top: 0.1rem;
+  }
+
+  .action-btn-group .btn-action {
+    flex: 1;
+    padding: 0.42rem 0.55rem;
+    font-size: 0.78rem;
   }
 
   .btn-sm {
@@ -1274,76 +1245,194 @@
     border: 1px solid rgba(239, 68, 68, 0.25);
   }
 
-  /* Destination Picker Modal */
-  .modal-overlay {
-    position: absolute;
-    inset: 0;
-    background-color: #ffffff;
-    z-index: 100;
+  /* Path Section & Expandable Selector */
+  .path-section {
     display: flex;
     flex-direction: column;
-    border-radius: 8px;
-    box-sizing: border-box;
-    animation: fadeIn 0.15s ease-out;
-    outline: none;
+    gap: 0.35rem;
+    background: rgba(128, 128, 128, 0.05);
+    border: 1px solid rgba(128, 128, 128, 0.16);
+    border-radius: 6px;
+    padding: 0.32rem 0.45rem;
+    transition: all 0.18s ease;
+  }
+
+  .path-section.expanded {
+    background: rgba(128, 128, 128, 0.08);
+    border-color: rgba(37, 99, 235, 0.35);
   }
 
   @media (prefers-color-scheme: dark) {
-    .modal-overlay {
-      background-color: #18181b;
+    .path-section.expanded {
+      border-color: rgba(96, 165, 250, 0.4);
     }
   }
 
-  .modal-header {
+  .path-summary-bar {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0.7rem 0.85rem;
-    border-bottom: 1px solid rgba(128, 128, 128, 0.15);
-  }
-
-  .modal-title-row {
-    display: flex;
-    align-items: center;
     gap: 0.4rem;
   }
 
-  .modal-icon {
-    font-size: 0.95rem;
-  }
-
-  .modal-title {
-    font-size: 0.92rem;
-    font-weight: 700;
-    margin: 0;
-    letter-spacing: -0.01em;
-  }
-
-  .btn-modal-close {
-    border: none;
-    background: transparent;
+  .path-summary-info {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex: 1;
+    min-width: 0;
     cursor: pointer;
-    font-size: 0.85rem;
-    padding: 0.2rem 0.4rem;
-    border-radius: 4px;
-    opacity: 0.55;
-    color: inherit;
+  }
+
+  .path-summary-label {
+    font-size: 0.78rem;
+    font-weight: 600;
+    opacity: 0.75;
+    white-space: nowrap;
+    user-select: none;
+  }
+
+  .path-summary-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.18rem 0.45rem;
+    background-color: #ffffff;
+    border: 1px solid rgba(128, 128, 128, 0.22);
+    border-radius: 6px;
+    font-size: 0.74rem;
+    font-weight: 500;
+    flex: 1;
+    min-width: 0;
     transition: all 0.12s ease;
   }
 
-  .btn-modal-close:hover {
-    opacity: 1;
+  .path-summary-pill:hover {
+    border-color: rgba(37, 99, 235, 0.4);
+    background-color: rgba(37, 99, 235, 0.04);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .path-summary-pill {
+      background-color: #27272a;
+      border-color: #3f3f46;
+    }
+    .path-summary-pill:hover {
+      background-color: rgba(96, 165, 250, 0.08);
+      border-color: rgba(96, 165, 250, 0.4);
+    }
+  }
+
+  .path-pill-icon {
+    font-size: 0.75rem;
+    flex-shrink: 0;
+  }
+
+  .path-pill-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+    color: #1e293b;
+    flex: 1;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .path-pill-title {
+      color: #f1f5f9;
+    }
+  }
+
+  .path-subfolder-crumb {
+    font-weight: 500;
+    color: #2563eb;
+    margin-left: 0.15rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .path-subfolder-crumb {
+      color: #93c5fd;
+    }
+  }
+
+  .path-mode-badge {
+    font-size: 0.65rem;
+    font-weight: 600;
+    padding: 0.05rem 0.35rem;
+    border-radius: 9999px;
+    text-transform: lowercase;
+    flex-shrink: 0;
+  }
+
+  .badge-direct {
+    background: rgba(16, 185, 129, 0.12);
+    color: #059669;
+    border: 1px solid rgba(16, 185, 129, 0.25);
+  }
+
+  .badge-subfolder {
+    background: rgba(37, 99, 235, 0.12);
+    color: #2563eb;
+    border: 1px solid rgba(37, 99, 235, 0.25);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .badge-direct {
+      background: rgba(52, 211, 153, 0.16);
+      color: #34d399;
+      border-color: rgba(52, 211, 153, 0.3);
+    }
+    .badge-subfolder {
+      background: rgba(96, 165, 250, 0.16);
+      color: #93c5fd;
+      border-color: rgba(96, 165, 250, 0.3);
+    }
+  }
+
+  .btn-path-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    padding: 0.22rem 0.5rem;
+    border: 1px solid rgba(128, 128, 128, 0.25);
+    background: transparent;
+    color: inherit;
+    font-size: 0.72rem;
+    font-weight: 600;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.12s ease;
+    flex-shrink: 0;
+  }
+
+  .btn-path-toggle:hover {
     background-color: rgba(128, 128, 128, 0.12);
   }
 
-  .modal-body {
-    padding: 0.75rem 0.85rem;
+  .btn-path-toggle.active {
+    background-color: #2563eb;
+    color: #ffffff;
+    border-color: #1d4ed8;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .btn-path-toggle.active {
+      background-color: #3b82f6;
+      border-color: #60a5fa;
+    }
+  }
+
+  .toggle-icon {
+    font-size: 0.65rem;
+  }
+
+  .path-expanded-card {
     display: flex;
     flex-direction: column;
-    gap: 0.65rem;
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
+    gap: 0.55rem;
+    padding-top: 0.35rem;
+    border-top: 1px dashed rgba(128, 128, 128, 0.18);
+    animation: fadeIn 0.15s ease-out;
   }
 
   /* Interactive Breadcrumb Path Builder Card */
@@ -1716,72 +1805,25 @@
     opacity: 1;
   }
 
-  /* Recent Folders */
-  .recent-section {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-  }
-
-  .recent-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.3rem;
-    max-height: 52px;
-    overflow-y: auto;
-  }
-
-  .recent-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    padding: 0.2rem 0.45rem;
+  /* Folder Recent Badge */
+  .folder-recent-badge {
+    font-size: 0.63rem;
+    font-weight: 600;
+    padding: 0.05rem 0.35rem;
     border-radius: 9999px;
-    font-size: 0.71rem;
-    font-weight: 500;
-    cursor: pointer;
-    border: 1px solid rgba(37, 99, 235, 0.25);
-    background-color: rgba(37, 99, 235, 0.06);
+    background: rgba(37, 99, 235, 0.1);
     color: #2563eb;
-    max-width: 100%;
-    transition: all 0.12s ease;
-  }
-
-  .recent-chip:hover {
-    background-color: rgba(37, 99, 235, 0.12);
-  }
-
-  .recent-chip.active {
-    background-color: #2563eb;
-    color: #ffffff;
-    border-color: #1d4ed8;
+    border: 1px solid rgba(37, 99, 235, 0.25);
+    text-transform: lowercase;
+    flex-shrink: 0;
   }
 
   @media (prefers-color-scheme: dark) {
-    .recent-chip {
-      background-color: rgba(96, 165, 250, 0.1);
-      border-color: rgba(96, 165, 250, 0.3);
+    .folder-recent-badge {
+      background: rgba(96, 165, 250, 0.14);
       color: #93c5fd;
+      border-color: rgba(96, 165, 250, 0.3);
     }
-    .recent-chip:hover {
-      background-color: rgba(96, 165, 250, 0.18);
-    }
-    .recent-chip.active {
-      background-color: #3b82f6;
-      color: #ffffff;
-      border-color: #60a5fa;
-    }
-  }
-
-  .recent-icon {
-    font-size: 0.72rem;
-  }
-
-  .recent-text {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    max-width: 250px;
   }
 
   /* Folder Options List */
@@ -1794,7 +1836,7 @@
   }
 
   .folder-options-list {
-    max-height: 140px;
+    max-height: 160px;
     overflow-y: auto;
     border: 1px solid rgba(128, 128, 128, 0.18);
     border-radius: 6px;
@@ -1868,63 +1910,6 @@
     .folder-option-check {
       color: #60a5fa;
     }
-  }
-
-  /* Modal Footer */
-  .modal-footer {
-    display: flex;
-    justify-content: flex-end;
-    align-items: center;
-    gap: 0.45rem;
-    padding: 0.65rem 0.85rem;
-    border-top: 1px solid rgba(128, 128, 128, 0.15);
-    background-color: rgba(128, 128, 128, 0.03);
-  }
-
-  .btn-modal-action {
-    padding: 0.38rem 0.75rem;
-    font-size: 0.78rem;
-    font-weight: 600;
-    border-radius: 6px;
-    cursor: pointer;
-    border: 1px solid transparent;
-    transition: all 0.15s ease;
-    user-select: none;
-  }
-
-  .btn-modal-action:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
-  }
-
-  .btn-modal-cancel {
-    background: transparent;
-    border-color: rgba(128, 128, 128, 0.25);
-    color: inherit;
-  }
-
-  .btn-modal-cancel:hover:not(:disabled) {
-    background-color: rgba(128, 128, 128, 0.1);
-  }
-
-  .btn-modal-close-save {
-    background-color: #2563eb;
-    color: #ffffff;
-    border-color: #1d4ed8;
-  }
-
-  .btn-modal-close-save:hover:not(:disabled) {
-    background-color: #1d4ed8;
-  }
-
-  .btn-modal-save {
-    background-color: #059669;
-    color: #ffffff;
-    border-color: #047857;
-  }
-
-  .btn-modal-save:hover:not(:disabled) {
-    background-color: #047857;
   }
 
   /* In-Popup Bookmarks Styles */

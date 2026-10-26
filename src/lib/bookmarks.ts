@@ -284,11 +284,16 @@ export async function resolveOrCreateSubfolderPath(
 
 /**
  * Stashes the active tab in the current window into a destination folder.
+ * If createSubfolder is true and customTitle is non-empty, creates an enclosing subfolder
+ * and saves the bookmark inside it.
+ * If createSubfolder is false or customTitle is empty, the tab bookmark is saved directly
+ * into the destination folder.
  */
 export async function stashCurrentTab(
   closeAfter = false,
   destinationFolderId?: string,
-  customTitle?: string
+  customTitle?: string,
+  createSubfolder = true
 ): Promise<StashResult> {
   try {
     const tabs = await browser.tabs.query({ active: true, currentWindow: true });
@@ -314,25 +319,40 @@ export async function stashCurrentTab(
       };
     }
 
-    let folderId = destinationFolderId || (await getOrCreateMakTabsFolder());
-    let finalTitle =
-      customTitle && customTitle.trim()
-        ? customTitle.trim()
-        : activeTab.title || activeTab.url;
+    let targetParentId = destinationFolderId || (await getOrCreateMakTabsFolder());
+    const trimmedTitle = customTitle?.trim() || '';
 
-    // If title has slashes, resolve path
-    if (finalTitle.includes('/')) {
-      const segments = finalTitle.split('/').map((s) => s.trim()).filter(Boolean);
-      if (segments.length > 1) {
-        const intermediate = segments.slice(0, -1);
-        folderId = await resolveOrCreateSubfolderPath(folderId, intermediate);
-        finalTitle = segments[segments.length - 1] ?? (activeTab.title || activeTab.url);
+    let subfolderTitle = '';
+    if (createSubfolder && trimmedTitle) {
+      if (trimmedTitle.includes('/')) {
+        const segments = trimmedTitle.split('/').map((s) => s.trim()).filter(Boolean);
+        if (segments.length > 1) {
+          const intermediate = segments.slice(0, -1);
+          targetParentId = await resolveOrCreateSubfolderPath(targetParentId, intermediate);
+          subfolderTitle = segments[segments.length - 1] ?? '';
+        } else {
+          subfolderTitle = segments[0] ?? trimmedTitle;
+        }
+      } else {
+        subfolderTitle = trimmedTitle;
       }
     }
 
+    let finalContainerId = targetParentId;
+    if (createSubfolder && subfolderTitle) {
+      const createdFolder = await browser.bookmarks.create({
+        parentId: targetParentId,
+        title: subfolderTitle,
+        index: 0,
+      });
+      finalContainerId = createdFolder.id;
+    }
+
+    const bookmarkTitle = activeTab.title || activeTab.url;
+
     await browser.bookmarks.create({
-      parentId: folderId,
-      title: finalTitle,
+      parentId: finalContainerId,
+      title: bookmarkTitle,
       url: activeTab.url,
       index: 0,
     });
@@ -341,14 +361,14 @@ export async function stashCurrentTab(
       await browser.tabs.remove(activeTab.id);
     }
 
-    await saveRecentDestinationId(folderId);
+    await saveRecentDestinationId(targetParentId);
 
     return {
       success: true,
       count: 1,
       message: closeAfter
-        ? 'Saved and closed this tab'
-        : `Saved "${finalTitle}"`,
+        ? (createSubfolder && subfolderTitle ? `Saved into "${subfolderTitle}" and closed tab` : 'Saved and closed this tab')
+        : (createSubfolder && subfolderTitle ? `Saved into "${subfolderTitle}"` : `Saved "${bookmarkTitle}"`),
     };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
