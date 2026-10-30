@@ -269,6 +269,57 @@ html, body {
   color: var(--text-main);
 }
 
+/* Update Available Banner */
+.manager-update-banner {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.1), rgba(99, 102, 241, 0.1));
+  border-bottom: 1px solid rgba(37, 99, 235, 0.22);
+  padding: 0.5rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.manager-update-content {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.82rem;
+  color: var(--text-main);
+}
+
+.manager-update-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.manager-update-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.manager-update-dismiss {
+  border: none;
+  background: transparent;
+  padding: 0.2rem 0.4rem;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+
+.manager-update-dismiss:hover {
+  color: var(--text-main);
+  background-color: var(--bg-surface-hover);
+}
+
 /* App Main Container (Sidebar + Content) */
 .manager-main {
   flex: 1;

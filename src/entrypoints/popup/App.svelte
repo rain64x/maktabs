@@ -25,10 +25,16 @@
     type BreadcrumbSegment,
   } from '@/lib/bookmarks';
   import FaviconBadge from '@/lib/FaviconBadge.svelte';
+  import {
+    checkForUpdates,
+    dismissUpdate,
+    type UpdateCheckResult,
+  } from '@/lib/updates';
 
   // Mode View: Stash or Bookmarks
   let activeTab = $state<'stash' | 'bookmarks'>('stash');
   let memorySaver = $state(true);
+  let updateInfo = $state<UpdateCheckResult | null>(null);
 
   // Stashing State
   let target = $state<'window' | 'this'>('window');
@@ -221,7 +227,18 @@
     } catch {
       // Ignore storage error
     }
+
+    checkForUpdates().then((res) => {
+      updateInfo = res;
+    }).catch(() => {});
   });
+
+  async function handleDismissUpdate() {
+    if (updateInfo?.latestVersion) {
+      await dismissUpdate(updateInfo.latestVersion);
+      updateInfo = { ...updateInfo, hasUpdate: false };
+    }
+  }
 
   function selectTab(newTab: 'stash' | 'bookmarks') {
     activeTab = newTab;
@@ -480,6 +497,57 @@
       </button>
     </div>
   </header>
+
+  <!-- Update Available Banner -->
+  {#if updateInfo?.hasUpdate}
+    <div class="update-banner" role="alert">
+      <div class="update-banner-header">
+        <div class="update-banner-title">
+          <span class="update-icon">🚀</span>
+          <span class="update-text">
+            Update available: <strong>v{updateInfo.latestVersion}</strong>
+          </span>
+        </div>
+        <button
+          type="button"
+          class="update-dismiss-btn"
+          onclick={handleDismissUpdate}
+          title="Dismiss update notice"
+          aria-label="Dismiss update notice"
+        >
+          ✕
+        </button>
+      </div>
+      <div class="update-banner-actions">
+        <a
+          href={updateInfo.releasesUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="update-btn update-btn-primary"
+          title="Download update from GitHub Releases"
+        >
+          Update ↗
+        </a>
+        <a
+          href={updateInfo.repoUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="update-btn update-btn-secondary"
+          title="View source code on GitHub"
+        >
+          Source Code
+        </a>
+        <button
+          type="button"
+          class="update-btn update-btn-text"
+          onclick={handleDismissUpdate}
+          title="Never remind again for version v{updateInfo.latestVersion}"
+        >
+          Never remind
+        </button>
+      </div>
+    </div>
+  {/if}
 
   <!-- View 1: Fast Stash -->
   {#if activeTab === 'stash'}
@@ -1015,6 +1083,107 @@
     display: flex;
     align-items: center;
     gap: 0.35rem;
+  }
+
+  /* Update Notification Banner */
+  .update-banner {
+    background: linear-gradient(135deg, rgba(37, 99, 235, 0.1), rgba(99, 102, 241, 0.1));
+    border-bottom: 1px solid rgba(37, 99, 235, 0.22);
+    padding: 0.45rem 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    font-size: 0.73rem;
+  }
+
+  .update-banner-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .update-banner-title {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-width: 0;
+  }
+
+  .update-icon {
+    font-size: 0.85rem;
+    flex-shrink: 0;
+  }
+
+  .update-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-main, #1e293b);
+  }
+
+  .update-banner-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+  }
+
+  .update-btn {
+    border: none;
+    font-size: 0.68rem;
+    padding: 0.18rem 0.45rem;
+    border-radius: 4px;
+    text-decoration: none;
+    cursor: pointer;
+    line-height: 1.2;
+    transition: all 0.15s ease;
+  }
+
+  .update-btn-primary {
+    background-color: #2563eb;
+    color: #ffffff !important;
+    font-weight: 600;
+  }
+
+  .update-btn-primary:hover {
+    background-color: #1d4ed8;
+  }
+
+  .update-btn-secondary {
+    background-color: rgba(0, 0, 0, 0.06);
+    color: var(--text-main, #1e293b);
+    border: 1px solid rgba(0, 0, 0, 0.1);
+  }
+
+  .update-btn-secondary:hover {
+    background-color: rgba(0, 0, 0, 0.12);
+  }
+
+  .update-btn-text {
+    background: transparent;
+    color: var(--text-muted, #64748b);
+    padding: 0.18rem 0.3rem;
+  }
+
+  .update-btn-text:hover {
+    color: var(--text-main, #0f172a);
+    text-decoration: underline;
+  }
+
+  .update-dismiss-btn {
+    border: none;
+    background: transparent;
+    padding: 0.1rem 0.2rem;
+    font-size: 0.72rem;
+    color: var(--text-muted, #64748b);
+    cursor: pointer;
+    border-radius: 3px;
+    line-height: 1;
+  }
+
+  .update-dismiss-btn:hover {
+    color: var(--text-main, #0f172a);
+    background-color: rgba(0, 0, 0, 0.08);
   }
 
   .btn-manager-icon {

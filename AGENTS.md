@@ -36,3 +36,14 @@ Follow these core operating principles whenever working on this codebase:
 - Keep commits atomic, well-scoped, and self-contained.
 - Use clear, standard commit messages (e.g. `feat: ...`, `fix: ...`, `chore: ...`, `docs: ...`).
 - Avoid mixing refactoring, feature work, and documentation changes unless explicitly planned as a setup or cleanup step.
+
+---
+
+## 5. 🏷️ Semantic Versioning & Automated Releases (Mandatory)
+
+- **Always bump `version` in `package.json`**: With every feature, bug fix, or behavioral update, you **must update the `version` field in `package.json`** before completing the task.
+- **Versioning Rules (SemVer)**:
+  - **`PATCH` (`x.y.Z`)**: Bug fixes, minor UI tweaks, styling refinements, small maintenance tasks, or documentation updates.
+  - **`MINOR` (`x.Y.0`)**: New features, new capabilities (e.g. search location discovery, pinned tabs, new views), or new configuration options.
+  - **`MAJOR` (`X.0.0`)**: Breaking architectural changes, radical UX redesigns, or breaking permission/data migration changes.
+- **Automated GitHub Releases on Push**: Each push to the `main` branch runs `.github/workflows/release.yml`, which packages the extension zip files (`maktabs-*-chrome.zip`, `maktabs-*-firefox.zip`, `maktabs-*-sources.zip`), creates the corresponding Git tag (`vX.Y.Z`), and publishes the GitHub Release with automated changelogs. Never forget to increment `package.json` so every push generates a clean release!

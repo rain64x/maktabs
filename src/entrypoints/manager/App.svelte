@@ -30,6 +30,11 @@
   import BookmarkTreeNode from './BookmarkTreeNode.svelte';
   import SidebarTreeNode from './SidebarTreeNode.svelte';
   import FaviconBadge from '@/lib/FaviconBadge.svelte';
+  import {
+    checkForUpdates,
+    dismissUpdate,
+    type UpdateCheckResult,
+  } from '@/lib/updates';
   import './manager.css';
 
   // Navigation & Data State
@@ -38,6 +43,7 @@
   let expandedFolderIds = $state<Set<string>>(new Set());
   let currentFolderId = $state<string>('');
   let currentFolderName = $state<string>('Loading...');
+  let updateInfo = $state<UpdateCheckResult | null>(null);
   let breadcrumbs = $state<{ id: string; title: string }[]>([]);
   let currentItems = $state<BookmarkItem[]>([]);
   let isLoading = $state(true);
@@ -206,6 +212,10 @@
     getMemorySaverPreference().then((val) => {
       memorySaver = val;
     });
+
+    checkForUpdates().then((res) => {
+      updateInfo = res;
+    }).catch(() => {});
 
     const handleBookmarkChange = () => {
       loadTrees();
@@ -745,6 +755,13 @@
       year: 'numeric',
     });
   }
+
+  async function handleDismissUpdate() {
+    if (updateInfo?.latestVersion) {
+      await dismissUpdate(updateInfo.latestVersion);
+      updateInfo = { ...updateInfo, hasUpdate: false };
+    }
+  }
 </script>
 
 <div class="app-layout">
@@ -862,6 +879,55 @@
           onclick={() => (selectedIds = new Set())}
         >
           Deselect All
+        </button>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Update Available Banner -->
+  {#if updateInfo?.hasUpdate}
+    <div class="manager-update-banner" role="alert">
+      <div class="manager-update-content">
+        <span class="manager-update-icon">🚀</span>
+        <span class="manager-update-text">
+          A new version of <strong>MakTabs (v{updateInfo.latestVersion})</strong> is available! (Installed: v{updateInfo.currentVersion})
+        </span>
+      </div>
+      <div class="manager-update-actions">
+        <a
+          href={updateInfo.releasesUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="btn btn-sm btn-primary"
+          title="Download update from GitHub Releases"
+        >
+          Update ↗
+        </a>
+        <a
+          href={updateInfo.repoUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="btn btn-sm btn-secondary"
+          title="View source code on GitHub"
+        >
+          View Source Code
+        </a>
+        <button
+          type="button"
+          class="btn btn-sm btn-secondary"
+          onclick={handleDismissUpdate}
+          title="Never remind again for version v{updateInfo.latestVersion}"
+        >
+          Never remind for this update
+        </button>
+        <button
+          type="button"
+          class="manager-update-dismiss"
+          onclick={handleDismissUpdate}
+          title="Dismiss update notice"
+          aria-label="Dismiss update notice"
+        >
+          ✕
         </button>
       </div>
     </div>

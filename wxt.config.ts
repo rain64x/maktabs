@@ -13,6 +13,9 @@ export default defineConfig({
       'storage',
       ...(browser === 'firefox' ? [] : ['favicon']),
     ],
+    host_permissions: [
+      'https://raw.githubusercontent.com/*',
+    ],
     action: {
       default_title: 'MakTabs',
       default_icon: {
