@@ -193,6 +193,15 @@
 
   // Lifecycle & Listeners
   onMount(() => {
+    browser.tabs
+      .getCurrent()
+      .then((tab) => {
+        if (tab?.id && !tab.pinned) {
+          browser.tabs.update(tab.id, { pinned: true }).catch(() => {});
+        }
+      })
+      .catch(() => {});
+
     initManager();
     getMemorySaverPreference().then((val) => {
       memorySaver = val;
@@ -1211,6 +1220,29 @@
                       </button>
                     {/if}
                   </div>
+
+                  <!-- Location trail (if searching and not directly under makTabs) -->
+                  {#if isGlobalSearch && item.locationBreadcrumbs && item.locationBreadcrumbs.length > 0 && !item.isDirectlyUnderMakTabs}
+                    <div class="item-location-trail" title="Location: {item.locationPath}">
+                      <span class="location-icon">📁</span>
+                      {#each item.locationBreadcrumbs as crumb, cIdx}
+                        {#if cIdx > 0}
+                          <span class="location-sep">›</span>
+                        {/if}
+                        <button
+                          type="button"
+                          class="location-crumb-btn {cIdx === item.locationBreadcrumbs.length - 1 ? 'is-parent' : ''}"
+                          onclick={(e) => {
+                            e.stopPropagation();
+                            navigateToFolder(crumb.id, crumb.title);
+                          }}
+                          title="Open folder: {crumb.title}"
+                        >
+                          {crumb.title}
+                        </button>
+                      {/each}
+                    </div>
+                  {/if}
 
                   <div class="item-meta">
                     {#if isFolder}

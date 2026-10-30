@@ -84,6 +84,9 @@ export interface BookmarkItem {
   dateGroupModified?: number;
   childrenCount?: number;
   children?: BookmarkItem[];
+  locationPath?: string;
+  locationBreadcrumbs?: BreadcrumbSegment[];
+  isDirectlyUnderMakTabs?: boolean;
 }
 
 export interface FolderNode {
@@ -246,6 +249,88 @@ export async function getDestinationFolders(): Promise<DestinationFolderOption[]
     console.warn('Failed to load destination folders:', err);
     return [];
   }
+}
+
+export interface FolderHierarchyInfo {
+  id: string;
+  title: string;
+  parentId?: string;
+  path: string;
+  breadcrumbs: BreadcrumbSegment[];
+  childrenCount?: number;
+  isMakTabsRoot: boolean;
+  isUnderMakTabs: boolean;
+}
+
+/**
+ * Builds a fast lookup map of all folder IDs to their breadcrumbs, paths, and makTabs context.
+ * Anchors paths under makTabs cleanly at 'makTabs' (e.g. 'makTabs › Sessions › Oct 26').
+ */
+export async function getFolderHierarchyMap(): Promise<Map<string, FolderHierarchyInfo>> {
+  const map = new Map<string, FolderHierarchyInfo>();
+  try {
+    const makTabsRootId = await getOrCreateMakTabsFolder();
+    const tree = await browser.bookmarks.getTree();
+    const rootNodes = tree[0]?.children ?? [];
+
+    type RawBookmarkNode = (typeof rootNodes)[number];
+
+    function traverse(
+      node: RawBookmarkNode,
+      parentPath: string[],
+      isUnderMakTabs: boolean,
+      parentBreadcrumbs: BreadcrumbSegment[]
+    ) {
+      if (node.url) return; // Only process folders
+
+      const isRootContainer = node.id === '0' || node.id === 'root________';
+      const nodeTitle = node.title || (isRootContainer ? 'Root' : 'Untitled Folder');
+      const isMakTabs =
+        node.id === makTabsRootId ||
+        nodeTitle.toLowerCase() === MAKTABS_FOLDER_NAME.toLowerCase();
+      const currentIsUnderMakTabs = isUnderMakTabs || isMakTabs;
+
+      let currentPath: string[];
+      let currentBreadcrumbs: BreadcrumbSegment[];
+
+      if (isRootContainer) {
+        currentPath = [];
+        currentBreadcrumbs = [];
+      } else if (isMakTabs) {
+        currentPath = [MAKTABS_FOLDER_NAME];
+        currentBreadcrumbs = [{ id: node.id, title: MAKTABS_FOLDER_NAME }];
+      } else {
+        currentPath = [...parentPath, nodeTitle];
+        currentBreadcrumbs = [...parentBreadcrumbs, { id: node.id, title: nodeTitle }];
+      }
+
+      if (!isRootContainer && currentPath.length > 0) {
+        map.set(node.id, {
+          id: node.id,
+          title: nodeTitle,
+          parentId: node.parentId,
+          path: currentPath.join(' › '),
+          breadcrumbs: currentBreadcrumbs,
+          childrenCount: node.children ? node.children.length : 0,
+          isMakTabsRoot: isMakTabs,
+          isUnderMakTabs: currentIsUnderMakTabs,
+        });
+      }
+
+      if (node.children) {
+        for (const child of node.children) {
+          traverse(child, currentPath, currentIsUnderMakTabs, currentBreadcrumbs);
+        }
+      }
+    }
+
+    for (const root of rootNodes) {
+      traverse(root, [], false, []);
+    }
+  } catch (err) {
+    console.warn('Failed to build folder hierarchy map:', err);
+  }
+  return map;
 }
 
 /**
@@ -849,20 +934,38 @@ export async function restoreAndOptionallyRemoveFolder(
 }
 
 /**
- * Searches bookmarks by query string across the entire browser bookmark store.
+ * Searches bookmarks by query string across the entire browser bookmark store,
+ * enriching results with full folder path, breadcrumbs, and makTabs location context.
  */
 export async function searchBookmarksApi(query: string): Promise<BookmarkItem[]> {
   const trimmed = query.trim();
   if (!trimmed) return [];
-  const results = await browser.bookmarks.search(trimmed);
-  return results.map((node) => ({
-    id: node.id,
-    parentId: node.parentId,
-    index: node.index,
-    url: node.url,
-    title: node.title || (node.url ? node.url : 'Untitled Folder'),
-    dateAdded: node.dateAdded,
-  }));
+  const [results, makTabsRootId, folderMap] = await Promise.all([
+    browser.bookmarks.search(trimmed),
+    getOrCreateMakTabsFolder(),
+    getFolderHierarchyMap(),
+  ]);
+
+  return results.map((node) => {
+    const parentFolder = node.parentId ? folderMap.get(node.parentId) : undefined;
+    const isFolder = !node.url;
+    const thisFolderInfo = isFolder ? folderMap.get(node.id) : undefined;
+    const isDirectlyUnderMakTabs =
+      node.parentId === makTabsRootId || node.id === makTabsRootId;
+
+    return {
+      id: node.id,
+      parentId: node.parentId,
+      index: node.index,
+      url: node.url,
+      title: node.title || (node.url ? node.url : 'Untitled Folder'),
+      dateAdded: node.dateAdded,
+      childrenCount: thisFolderInfo?.childrenCount,
+      locationPath: parentFolder?.path || '',
+      locationBreadcrumbs: parentFolder?.breadcrumbs || [],
+      isDirectlyUnderMakTabs,
+    };
+  });
 }
 
 /**

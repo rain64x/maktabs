@@ -760,6 +760,66 @@ html, body {
   color: var(--primary);
 }
 
+/* Location Trail (Search Results) */
+.item-location-trail {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  line-height: 1.3;
+  margin: 0.1rem 0;
+  padding: 0.15rem 0.4rem;
+  background-color: var(--bg-hover, rgba(0, 0, 0, 0.04));
+  border-radius: var(--radius-sm, 4px);
+  width: fit-content;
+  max-width: 100%;
+}
+
+.location-icon {
+  font-size: 0.72rem;
+  opacity: 0.75;
+  flex-shrink: 0;
+}
+
+.location-sep {
+  color: var(--text-subtle, #94a3b8);
+  font-size: 0.68rem;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.location-crumb-btn {
+  border: none;
+  background: transparent;
+  padding: 0.05rem 0.2rem;
+  font-size: inherit;
+  font-family: inherit;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 3px;
+  transition: color 0.15s ease, background-color 0.15s ease;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.location-crumb-btn:hover {
+  color: var(--primary, #2563eb);
+  background-color: var(--primary-subtle, rgba(37, 99, 235, 0.1));
+}
+
+.location-crumb-btn.is-parent {
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.location-crumb-btn.is-parent:hover {
+  color: var(--primary, #2563eb);
+}
+
 .item-meta {
   display: flex;
   align-items: center;

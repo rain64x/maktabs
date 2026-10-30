@@ -23,9 +23,9 @@ By leveraging native browser bookmarks, your stashed sessions and organized book
   - Reorder bookmarks within folders or move items between folders.
   - Move entire folders around, nest subfolders, or drop items directly onto sidebar folders at any depth.
   - Built-in circular hierarchy protection prevents accidental nesting loops.
-- **🖥️ Dedicated Full-Page Manager**: Spacious, standalone dashboard (`manager.html`) with recursive sidebar folder navigation, batch actions, and 1-click session restoration.
+- **🖥️ Dedicated Full-Page Manager**: Spacious, standalone dashboard (`manager.html`) opened as a pinned tab with recursive sidebar folder navigation, batch actions, and 1-click session restoration.
 - **📑 In-Popup Bookmarks View**: Quick visual bookmark browser and organizer built directly into the extension popup.
-- **🔍 Instant Search & Filtering**: Real-time search across all bookmark titles and URLs with instant tree highlighting.
+- **🔍 Instant Search & Subfolder Location Discovery**: Real-time search across all bookmark titles and URLs across all subfolders. Search results display interactive folder breadcrumb trails for items outside makTabs root, enabling instant 1-click navigation into their containing folders.
 - **☁️ Native & Self-Hosted Cloud Sync**: Stored directly in native browser bookmark trees, synchronizing across all your devices automatically.
 - **🛡️ Data Safety & URL Filtering**: Automatically skips non-bookmarkable internal browser tabs (such as `chrome://`, `edge://`, `about:`, and `devtools://`).
 - **📌 Pinned Tab Protection**: Pinned tabs are automatically preserved and never stashed or closed.

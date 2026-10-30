@@ -13,6 +13,7 @@
     openBookmarkUrl,
     restoreAndOptionallyRemoveFolder,
     getMemorySaverPreference,
+    searchBookmarksApi,
     extractDomain,
     getDomainInitial,
     getDomainColor,
@@ -117,13 +118,31 @@
   let bookmarkItems = $state<BookmarkItem[]>([]);
   let searchQuery = $state('');
   let isBookmarksLoading = $state(false);
+  let globalSearchResults = $state<BookmarkItem[]>([]);
+  let isSearchingGlobal = $state(false);
+  let searchDebounceTimer: number | null = null;
 
   // Drag and Drop State for Popup
   let draggedItem = $state<BookmarkItem | null>(null);
   let dragOverItemId = $state<string | null>(null);
   let dropPosition = $state<'before' | 'after' | 'folder' | null>(null);
 
+  $effect(() => {
+    const q = searchQuery.trim();
+    if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+    if (q.length >= 2) {
+      isSearchingGlobal = true;
+      searchDebounceTimer = window.setTimeout(async () => {
+        globalSearchResults = await searchBookmarksApi(q);
+      }, 150);
+    } else {
+      isSearchingGlobal = false;
+      globalSearchResults = [];
+    }
+  });
+
   let filteredBookmarks = $derived.by(() => {
+    if (isSearchingGlobal) return globalSearchResults;
     if (!searchQuery.trim()) return bookmarkItems;
     const q = searchQuery.toLowerCase().trim();
     return bookmarkItems.filter(
@@ -287,8 +306,19 @@
     }
   }
 
-  function openFullManager() {
-    browser.tabs.create({ url: browser.runtime.getURL('/manager.html') });
+  async function openFullManager() {
+    const managerUrl = browser.runtime.getURL('/manager.html');
+    try {
+      const tabs = await browser.tabs.query({ currentWindow: true });
+      const existing = tabs.find((t) => t.url && t.url.startsWith(managerUrl));
+      if (existing?.id) {
+        await browser.tabs.update(existing.id, { active: true, pinned: true });
+        return;
+      }
+    } catch {
+      // Fallback to tabs.create
+    }
+    await browser.tabs.create({ url: managerUrl, pinned: true });
   }
 
   // Popup Bookmark Navigation
@@ -833,6 +863,22 @@
                   tabindex="0"
                 >
                   <span class="b-title">{item.title}</span>
+                  {#if isSearchingGlobal && item.locationPath && !item.isDirectlyUnderMakTabs}
+                    <button
+                      type="button"
+                      class="b-location-btn"
+                      title="Folder location: {item.locationPath}"
+                      onclick={(e) => {
+                        e.stopPropagation();
+                        if (item.parentId) {
+                          searchQuery = '';
+                          navigateIntoFolder({ id: item.parentId, title: item.locationPath || 'Folder' });
+                        }
+                      }}
+                    >
+                      📁 {item.locationPath}
+                    </button>
+                  {/if}
                   <span class="b-meta">{item.childrenCount ?? 0} items</span>
                 </div>
                 <div class="b-actions">
@@ -871,6 +917,22 @@
                   title={item.url}
                 >
                   <span class="b-title">{item.title}</span>
+                  {#if isSearchingGlobal && item.locationPath && !item.isDirectlyUnderMakTabs}
+                    <button
+                      type="button"
+                      class="b-location-btn"
+                      title="Folder location: {item.locationPath}"
+                      onclick={(e) => {
+                        e.stopPropagation();
+                        if (item.parentId) {
+                          searchQuery = '';
+                          navigateIntoFolder({ id: item.parentId, title: item.locationPath || 'Folder' });
+                        }
+                      }}
+                    >
+                      📁 {item.locationPath}
+                    </button>
+                  {/if}
                   <span class="b-meta">{domain || item.url}</span>
                 </div>
                 <div class="b-actions">
@@ -2051,6 +2113,29 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .b-location-btn {
+    border: none;
+    background: transparent;
+    padding: 0;
+    font-size: 0.68rem;
+    color: var(--text-muted, #64748b);
+    opacity: 0.85;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+    display: block;
+    max-width: 100%;
+    transition: color 0.15s ease, opacity 0.15s ease;
+  }
+
+  .b-location-btn:hover {
+    color: #2563eb;
+    opacity: 1;
+    text-decoration: underline;
   }
 
   .b-actions {
